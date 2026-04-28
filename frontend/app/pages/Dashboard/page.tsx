@@ -41,7 +41,7 @@ const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
   alimentacao: { label: "Alimentação", icon: UtensilsCrossed, tone: "primary" },
   transporte: { label: "Transporte", icon: CarFront, tone: "danger" },
   lazer: { label: "Lazer", icon: Ticket, tone: "neutral" },
-  investimentos: { label: "Investimentos", icon: PiggyBank, tone: "success" },
+  investimentos: { label: "Investimentos", icon: PiggyBank, tone: "primary" },
   pagamento: { label: "Pagamento", icon: WalletCards, tone: "primary" },
   saude: { label: "Saúde", icon: Heart, tone: "danger" },
   assinatura: { label: "Assinatura", icon: FileText, tone: "neutral" },
@@ -110,6 +110,45 @@ function getCategoryToneClasses(tone: CategoryTone): { icon: string; bar: string
   };
 }
 
+function parseAnnualRateValue(rate: number | string | null | undefined): number {
+  if (typeof rate === "number") {
+    return Number.isFinite(rate) ? rate : 0;
+  }
+
+  if (typeof rate === "string") {
+    const parsed = Number(rate.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
+function getFullMonthsElapsed(startInput: string, referenceDate: Date): number {
+  const startDate = new Date(startInput);
+  if (Number.isNaN(startDate.getTime())) return 0;
+
+  let months =
+    (referenceDate.getFullYear() - startDate.getFullYear()) * 12 +
+    (referenceDate.getMonth() - startDate.getMonth());
+
+  if (referenceDate.getDate() < startDate.getDate()) {
+    months -= 1;
+  }
+
+  return Math.max(0, months);
+}
+
+function calculateInvestmentUpdatedValue(amount: number, annualRate: number, date: string, now: Date): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  if (!Number.isFinite(annualRate) || annualRate <= 0) return amount;
+
+  const monthsElapsed = getFullMonthsElapsed(date, now);
+  if (monthsElapsed <= 0) return amount;
+
+  const monthlyFactor = Math.pow(1 + annualRate / 100, 1 / 12);
+  return amount * Math.pow(monthlyFactor, monthsElapsed);
+}
+
 export default function DashboardPage() {
   const { transactions, isLoading, error } = useFinanceTransactions();
 
@@ -119,20 +158,27 @@ export default function DashboardPage() {
     let investments = 0;
     let incomeCount = 0;
     let expenseCount = 0;
+    let investmentsCount = 0;
+    const now = new Date();
 
     for (const transaction of transactions) {
       const amount = Math.abs(toAmountNumber(transaction.amount));
+      const isInvestment = normalizeCategory(transaction.category) === "investimentos";
 
       if (transaction.type === "INCOME") {
-        income += amount;
-        incomeCount += 1;
+        if (!isInvestment) {
+          income += amount;
+          incomeCount += 1;
+        }
       } else {
         expense += amount;
         expenseCount += 1;
       }
 
-      if (normalizeCategory(transaction.category) === "investimentos") {
-        investments += amount;
+      if (isInvestment) {
+        const annualRate = parseAnnualRateValue(transaction.annualRate);
+        investments += calculateInvestmentUpdatedValue(amount, annualRate, transaction.date, now);
+        investmentsCount += 1;
       }
     }
 
@@ -141,6 +187,7 @@ export default function DashboardPage() {
       expense,
       balance: income - expense,
       investments,
+      investmentsCount,
       incomeCount,
       expenseCount,
       count: transactions.length,
@@ -173,7 +220,7 @@ export default function DashboardPage() {
       {
         title: "Investimentos",
         value: formatCurrencyBRL(summary.investments),
-        trend: "Total aplicado",
+        trend: summary.investmentsCount > 0 ? "Atualizado ao mês" : "Sem investimentos",
         tone: "accent" as const,
         icon: PiggyBank,
       },
@@ -186,6 +233,7 @@ export default function DashboardPage() {
       transactions.slice(0, 6).map((transaction) => {
         const amount = Math.abs(toAmountNumber(transaction.amount));
         const isIncome = transaction.type === "INCOME";
+        const isInvestment = normalizeCategory(transaction.category) === "investimentos";
         const categoryVisual = resolveCategoryVisual(transaction.category);
 
         return {
@@ -197,7 +245,11 @@ export default function DashboardPage() {
           date: formatDateBR(transaction.date),
           paymentMethod: formatCategoryLabel(transaction.paymentMethod),
           value: `${isIncome ? "+" : "-"}${formatCurrencyBRL(amount)}`,
-          amountTone: isIncome ? ("positive" as const) : ("negative" as const),
+          amountTone: isInvestment
+            ? ("accent" as const)
+            : isIncome
+              ? ("positive" as const)
+              : ("negative" as const),
         };
       }),
     [transactions]
@@ -309,7 +361,12 @@ export default function DashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="relative mt-auto space-y-2.5">
-                  <p className="text-2xl font-semibold tracking-tight whitespace-nowrap text-foreground tabular-nums sm:text-3xl">
+                  <p
+                    className={cn(
+                      "text-2xl font-semibold tracking-tight whitespace-nowrap tabular-nums sm:text-3xl",
+                      getToneClass(card.tone)
+                    )}
+                  >
                     {card.value}
                   </p>
                   <Badge

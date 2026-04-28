@@ -1,0 +1,2 @@
+ALTER TABLE "Transaction"
+ADD COLUMN IF NOT EXISTS "annualRate" DECIMAL;

@@ -16,6 +16,7 @@ export type FinanceTransaction = {
   date: string;
   paymentMethod: string;
   receiptUrl?: string | null;
+  annualRate?: number | string | null;
   createdAt: string;
   updatedAt: string;
 };

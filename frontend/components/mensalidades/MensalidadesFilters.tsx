@@ -1,0 +1,190 @@
+import { CalendarDays, CheckCircle2, Clock3, Filter, ListFilter, RotateCcw, TriangleAlert } from "lucide-react";
+
+import type { MensalidadeCategory, MensalidadesFiltersState } from "@/components/mensalidades/types";
+import { resolveCategoryVisual } from "@/components/mensalidades/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
+type MensalidadeCategoryOption = {
+  value: MensalidadeCategory;
+  label: string;
+};
+
+type MensalidadesFiltersProps = {
+  filters: MensalidadesFiltersState;
+  categories: MensalidadeCategoryOption[];
+  resultCount: number;
+  onChange: (next: Partial<MensalidadesFiltersState>) => void;
+  onClear: () => void;
+};
+
+const statusOptions: Array<{
+  value: MensalidadesFiltersState["status"];
+  label: string;
+  icon: typeof ListFilter;
+}> = [
+  { value: "all", label: "Todos", icon: ListFilter },
+  { value: "paid", label: "Pago", icon: CheckCircle2 },
+  { value: "pending", label: "Pendente", icon: Clock3 },
+  { value: "overdue", label: "Atrasado", icon: TriangleAlert },
+];
+
+function formatDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function MensalidadesFilters({
+  filters,
+  categories,
+  resultCount,
+  onChange,
+  onClear,
+}: MensalidadesFiltersProps) {
+  const hasActiveFilters = filters.status !== "all" || filters.category !== "all" || Boolean(filters.date);
+  const selectedDate = filters.date ? new Date(`${filters.date}T00:00:00`) : undefined;
+  const selectedCategory =
+    filters.category === "all" ? null : categories.find((category) => category.value === filters.category);
+  const SelectedCategoryIcon = selectedCategory
+    ? resolveCategoryVisual(selectedCategory.value).icon
+    : ListFilter;
+  const selectedStatus = statusOptions.find((option) => option.value === filters.status) ?? statusOptions[0];
+  const SelectedStatusIcon = selectedStatus.icon;
+
+  return (
+    <Card className="border-border/80 bg-card/95">
+      <CardHeader className="pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Filter className="size-4 text-primary" />
+              Filtros
+            </CardTitle>
+            <CardDescription>Refine por status, categoria e data de vencimento.</CardDescription>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{resultCount} resultados</Badge>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={onClear}
+              disabled={!hasActiveFilters}
+            >
+              <RotateCcw className="size-3.5" />
+              Limpar
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-2">
+            <p className="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Status</p>
+            <Select
+              value={filters.status}
+              onValueChange={(value) => onChange({ status: value as MensalidadesFiltersState["status"] })}
+            >
+              <SelectTrigger className="h-11 rounded-xl">
+                <SelectValue placeholder="Selecione o status">
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <SelectedStatusIcon className="size-4 shrink-0 text-primary" />
+                    <span className="truncate">{selectedStatus.label}</span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {statusOptions.map((option) => {
+                  const StatusIcon = option.icon;
+
+                  return (
+                    <SelectItem key={option.value} value={option.value}>
+                      <span className="flex items-center gap-2">
+                        <StatusIcon className="size-4 text-primary" />
+                        {option.label}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Categoria</p>
+            <Select
+              value={filters.category}
+              onValueChange={(value) => onChange({ category: value as MensalidadesFiltersState["category"] })}
+            >
+              <SelectTrigger className="h-11 rounded-xl">
+                <SelectValue placeholder="Selecione a categoria">
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <SelectedCategoryIcon className="size-4 shrink-0 text-primary" />
+                    <span className="truncate">{selectedCategory?.label ?? "Todas as categorias"}</span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <span className="flex items-center gap-2">
+                    <ListFilter className="size-4 text-primary" />
+                    Todas as categorias
+                  </span>
+                </SelectItem>
+                {categories.map((category) => {
+                  const CategoryIcon = resolveCategoryVisual(category.value).icon;
+
+                  return (
+                    <SelectItem key={category.value} value={category.value}>
+                      <span className="flex items-center gap-2">
+                        <CategoryIcon className="size-4 text-primary" />
+                        {category.label}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase">Vencimento</p>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "h-11 w-full justify-between rounded-xl border-input bg-background px-3 text-left text-sm font-normal",
+                    !selectedDate && "text-muted-foreground"
+                  )}
+                >
+                  <span>{selectedDate ? new Intl.DateTimeFormat("pt-BR").format(selectedDate) : "dd/mm/aaaa"}</span>
+                  <CalendarDays className="size-4 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => onChange({ date: date ? formatDateInputValue(date) : "" })}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

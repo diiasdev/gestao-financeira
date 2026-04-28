@@ -63,8 +63,12 @@ export default function TransitionsPage() {
 
     for (const transaction of filteredTransactions) {
       const amount = Math.abs(toAmountNumber(transaction.amount));
+      const isInvestment = normalizeCategory(transaction.category) === "investimentos";
+
       if (transaction.type === "INCOME") {
-        entries += amount;
+        if (!isInvestment) {
+          entries += amount;
+        }
       } else {
         expenses += amount;
       }

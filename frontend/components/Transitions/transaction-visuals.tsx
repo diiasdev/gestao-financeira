@@ -27,7 +27,7 @@ const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
   alimentacao: { label: "Alimentação", icon: UtensilsCrossed, tone: "primary" },
   transporte: { label: "Transporte", icon: CarFront, tone: "danger" },
   lazer: { label: "Lazer", icon: Ticket, tone: "neutral" },
-  investimentos: { label: "Investimentos", icon: PiggyBank, tone: "success" },
+  investimentos: { label: "Investimentos", icon: PiggyBank, tone: "primary" },
   pagamento: { label: "Pagamento", icon: WalletCards, tone: "primary" },
   saude: { label: "Saúde", icon: Heart, tone: "danger" },
   assinatura: { label: "Assinatura", icon: FileText, tone: "neutral" },

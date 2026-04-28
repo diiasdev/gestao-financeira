@@ -1,10 +1,21 @@
-import { getCategoryToneClasses, resolveCategoryVisual, resolvePaymentMethodVisual } from "@/components/Transitions/transaction-visuals";
+import {
+  getCategoryToneClasses,
+  normalizeCategory,
+  resolveCategoryVisual,
+  resolvePaymentMethodVisual,
+} from "@/components/Transitions/transaction-visuals";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatCurrencyBRL, formatDateBR, toAmountNumber, type FinanceTransaction } from "@/lib/finance";
+import {
+  API_BASE_URL,
+  formatCurrencyBRL,
+  formatDateBR,
+  toAmountNumber,
+  type FinanceTransaction,
+} from "@/lib/finance";
 import { cn } from "@/lib/utils";
 
 type TransactionsListProps = {
@@ -12,6 +23,25 @@ type TransactionsListProps = {
   isLoading: boolean;
   error: string | null;
 };
+
+function resolveReceiptLink(receiptUrl?: string | null): string | null {
+  const value = receiptUrl?.trim();
+  if (!value) return null;
+
+  if (/^https?:\/\//i.test(value) || /^data:image\//i.test(value)) {
+    return value;
+  }
+
+  if (/^www\./i.test(value)) {
+    return `https://${value}`;
+  }
+
+  if (value.startsWith("/")) {
+    return `${API_BASE_URL}${value}`;
+  }
+
+  return null;
+}
 
 export function TransactionsList({ transactions, isLoading, error }: TransactionsListProps) {
   return (
@@ -57,6 +87,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                     <TableHead>Tipo</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Pagamento</TableHead>
+                    <TableHead>Comprovantes</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -65,11 +96,17 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                     const categoryVisual = resolveCategoryVisual(item.category);
                     const paymentMethodVisual = resolvePaymentMethodVisual(item.paymentMethod);
                     const isIncome = item.type === "INCOME";
+                    const isInvestment = normalizeCategory(item.category) === "investimentos";
                     const amount = Math.abs(toAmountNumber(item.amount));
-                    const amountClass = isIncome ? "text-success" : "text-destructive";
+                    const amountClass = isInvestment
+                      ? "text-primary"
+                      : isIncome
+                        ? "text-success"
+                        : "text-destructive";
                     const CategoryIcon = categoryVisual.icon;
                     const PaymentIcon = paymentMethodVisual.icon;
                     const categoryStyles = getCategoryToneClasses(categoryVisual.tone);
+                    const receiptLink = resolveReceiptLink(item.receiptUrl);
 
                     return (
                       <TableRow key={item.id}>
@@ -94,6 +131,20 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                             {paymentMethodVisual.label}
                           </span>
                         </TableCell>
+                        <TableCell>
+                          {receiptLink ? (
+                            <a
+                              href={receiptLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+                            >
+                              Ver comprovante
+                            </a>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Sem comprovante</span>
+                          )}
+                        </TableCell>
                         <TableCell className={cn("text-right text-base font-semibold whitespace-nowrap tabular-nums", amountClass)}>
                           {`${isIncome ? "+" : "-"}${formatCurrencyBRL(amount)}`}
                         </TableCell>
@@ -109,11 +160,17 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                 const categoryVisual = resolveCategoryVisual(item.category);
                 const paymentMethodVisual = resolvePaymentMethodVisual(item.paymentMethod);
                 const isIncome = item.type === "INCOME";
+                const isInvestment = normalizeCategory(item.category) === "investimentos";
                 const amount = Math.abs(toAmountNumber(item.amount));
-                const amountClass = isIncome ? "text-success" : "text-destructive";
+                const amountClass = isInvestment
+                  ? "text-primary"
+                  : isIncome
+                    ? "text-success"
+                    : "text-destructive";
                 const CategoryIcon = categoryVisual.icon;
                 const PaymentIcon = paymentMethodVisual.icon;
                 const categoryStyles = getCategoryToneClasses(categoryVisual.tone);
+                const receiptLink = resolveReceiptLink(item.receiptUrl);
 
                 return (
                   <div key={item.id} className="space-y-3 rounded-2xl border border-border/75 bg-background/70 px-4 py-3">
@@ -141,6 +198,21 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                         <PaymentIcon className="size-3.5" />
                         {paymentMethodVisual.label}
                       </Badge>
+                    </div>
+
+                    <div>
+                      {receiptLink ? (
+                        <a
+                          href={receiptLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+                        >
+                          Ver comprovante
+                        </a>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Sem comprovante</span>
+                      )}
                     </div>
 
                     {index < transactions.length - 1 ? <Separator className="opacity-35" /> : null}

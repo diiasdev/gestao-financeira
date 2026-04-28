@@ -56,19 +56,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { normalizeCategory } from "@/components/Transitions/transaction-visuals";
 import { API_BASE_URL, FINANCE_UPDATED_EVENT } from "@/lib/finance";
 import { BASE_TRANSACTION_CATEGORIES, EXTRA_INCOME_TRANSACTION_CATEGORY } from "@/lib/transaction-categories";
 import { cn } from "@/lib/utils";
 
-const movementSchema = z.object({
-  movementType: z.enum(["income", "expense"]),
-  description: z.string().min(1, "Informe a descrição"),
-  amount: z.string().min(1, "Informe o valor"),
-  paymentMethod: z.string().min(1, "Selecione a forma de pagamento"),
-  category: z.string().min(1, "Selecione uma categoria"),
-  date: z.date({ error: "Selecione uma data" }),
-  receipt: z.string().optional(),
-});
+const movementSchema = z
+  .object({
+    movementType: z.enum(["income", "expense"]),
+    description: z.string().min(1, "Informe a descrição"),
+    amount: z.string().min(1, "Informe o valor"),
+    paymentMethod: z.string().min(1, "Selecione a forma de pagamento"),
+    category: z.string().min(1, "Selecione uma categoria"),
+    date: z.date({ error: "Selecione uma data" }),
+    receipt: z.string().optional(),
+    annualRate: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (!isInvestmentCategory(values.category)) return;
+
+    const annualRate = parseAnnualRate(values.annualRate ?? "");
+    if (!Number.isFinite(annualRate) || annualRate <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe uma taxa anual válida maior que zero.",
+        path: ["annualRate"],
+      });
+    }
+  });
 
 type MovementFormValues = z.infer<typeof movementSchema>;
 type TransactionType = "INCOME" | "EXPENSE";
@@ -77,6 +92,7 @@ type RegisterMovementPayload = {
   type: TransactionType;
   description: string;
   amount: number;
+  annualRate?: number;
   category: string;
   date: string;
   paymentMethod: string;
@@ -176,7 +192,12 @@ const defaultMovementValues: DefaultValues<MovementFormValues> = {
   category: "",
   date: undefined,
   receipt: "",
+  annualRate: "",
 };
+
+function isInvestmentCategory(category: string): boolean {
+  return normalizeCategory(category) === "investimentos";
+}
 
 function parseAmount(value: string): number {
   const cleaned = value.trim().replace(/[^\d,.-]/g, "");
@@ -212,6 +233,21 @@ function formatAmountInput(value: string): string {
   }).format(amount);
 }
 
+function parseAnnualRate(value: string): number {
+  const cleaned = value.trim().replace("%", "").replace(/\s+/g, "").replace(",", ".");
+  if (!cleaned) return Number.NaN;
+
+  return Number(cleaned);
+}
+
+function formatAnnualRateInput(value: string): string {
+  const cleaned = value.replace(/[^\d.,]/g, "").replace(",", ".");
+  const [integerPart, ...decimals] = cleaned.split(".");
+  const decimal = decimals.join("").slice(0, 2);
+
+  return decimal.length > 0 ? `${integerPart}.${decimal}` : integerPart;
+}
+
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
 
@@ -245,6 +281,7 @@ export function ButtonMoviments() {
     control: form.control,
     name: "category",
   });
+  const isInvestmentCategorySelected = isInvestmentCategory(selectedCategory);
   const categoryOptions = selectedType === "income" ? [...categories, incomeExtraCategory] : categories;
 
   useEffect(() => {
@@ -252,6 +289,12 @@ export function ButtonMoviments() {
       form.setValue("category", "", { shouldValidate: true });
     }
   }, [form, selectedCategory, selectedType]);
+
+  useEffect(() => {
+    if (!isInvestmentCategorySelected) {
+      form.setValue("annualRate", "", { shouldValidate: false, shouldDirty: false });
+    }
+  }, [form, isInvestmentCategorySelected]);
 
   useEffect(() => {
     if (!successAlert) return;
@@ -274,10 +317,15 @@ export function ButtonMoviments() {
       return;
     }
 
+    const annualRate = isInvestmentCategory(values.category)
+      ? parseAnnualRate(values.annualRate ?? "")
+      : undefined;
+
     const payload: RegisterMovementPayload = {
       type: values.movementType === "income" ? "INCOME" : "EXPENSE",
       description: values.description,
       amount: parsedAmount,
+      annualRate: Number.isFinite(annualRate) ? annualRate : undefined,
       category: values.category,
       date: values.date.toISOString(),
       paymentMethod: values.paymentMethod,
@@ -564,6 +612,31 @@ export function ButtonMoviments() {
                 )}
               />
             </div>
+
+            {isInvestmentCategorySelected ? (
+              <FormField
+                control={form.control}
+                name="annualRate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>% ao ano</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Ex: 12.5"
+                        className="h-12 text-base"
+                        inputMode="decimal"
+                        name={field.name}
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(formatAnnualRateInput(event.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
             <FormField
               control={form.control}

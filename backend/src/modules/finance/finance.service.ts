@@ -6,6 +6,7 @@ export type TransactionDto = {
   type: TransactionType;
   description: string;
   amount: number;
+  annualRate?: number;
   category: string;
   date: string;
   paymentMethod: string;
@@ -25,6 +26,7 @@ export class FinanceService {
           type: dto.type,
           description: dto.description,
           amount: dto.amount,
+          annualRate: dto.annualRate,
           category: dto.category,
           date: dto.date,
           paymentMethod: dto.paymentMethod,

@@ -16,6 +16,7 @@ model Transaction {
   type          TransactionType
   description   String
   amount        Decimal
+  annualRate    Decimal?
   category      String
   date          DateTime
   paymentMethod String
