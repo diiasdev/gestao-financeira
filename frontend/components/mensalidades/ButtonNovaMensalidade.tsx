@@ -123,7 +123,7 @@ export type NovaMensalidadeInput = {
 };
 
 type ButtonNovaMensalidadeProps = {
-  onCreate: (input: NovaMensalidadeInput) => void;
+  onCreate: (input: NovaMensalidadeInput) => Promise<void> | void;
 };
 
 const defaultValues: DefaultValues<MensalidadeFormValues> = {
@@ -136,23 +136,32 @@ const defaultValues: DefaultValues<MensalidadeFormValues> = {
 
 export function ButtonNovaMensalidade({ onCreate }: ButtonNovaMensalidadeProps) {
   const [open, setOpen] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const form = useForm<MensalidadeFormValues>({
     resolver: zodResolver(mensalidadeSchema),
     defaultValues,
   });
 
-  const handleSubmit = (values: MensalidadeFormValues) => {
-    onCreate({
-      name: values.name.trim(),
-      category: values.category,
-      dueDate: toLocalDateKey(values.dueDate),
-      amount: parseAmount(values.amount),
-      installmentsTotal: Number(values.installments),
-    });
+  const handleSubmit = async (values: MensalidadeFormValues) => {
+    setSubmitError(null);
 
-    form.reset(defaultValues);
-    setOpen(false);
+    try {
+      await onCreate({
+        name: values.name.trim(),
+        category: values.category,
+        dueDate: toLocalDateKey(values.dueDate),
+        amount: parseAmount(values.amount),
+        installmentsTotal: Number(values.installments),
+      });
+
+      form.reset(defaultValues);
+      setOpen(false);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Não foi possível cadastrar a mensalidade."
+      );
+    }
   };
 
   return (
@@ -160,7 +169,10 @@ export function ButtonNovaMensalidade({ onCreate }: ButtonNovaMensalidadeProps) 
       open={open}
       onOpenChange={(isOpen) => {
         setOpen(isOpen);
-        if (!isOpen) form.reset(defaultValues);
+        if (!isOpen) {
+          form.reset(defaultValues);
+          setSubmitError(null);
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -318,15 +330,25 @@ export function ButtonNovaMensalidade({ onCreate }: ButtonNovaMensalidadeProps) 
 
             <DialogFooter className="pt-1">
               <DialogClose asChild>
-                <Button type="button" variant="outline" className="rounded-xl px-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl px-4"
+                  disabled={form.formState.isSubmitting}
+                >
                   Cancelar
                 </Button>
               </DialogClose>
-              <Button type="submit" className="rounded-xl bg-primary px-4 font-semibold text-primary-foreground">
+              <Button
+                type="submit"
+                className="rounded-xl bg-primary px-4 font-semibold text-primary-foreground"
+                disabled={form.formState.isSubmitting}
+              >
                 <Wallet className="size-4" />
-                Salvar mensalidade
+                {form.formState.isSubmitting ? "Salvando..." : "Salvar mensalidade"}
               </Button>
             </DialogFooter>
+            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
           </form>
         </Form>
       </DialogContent>

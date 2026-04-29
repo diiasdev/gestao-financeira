@@ -15,8 +15,9 @@ import {
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import type { Mensalidade } from "@/components/mensalidades/types";
 import { ButtonMoviments } from "@/components/layout/ButtonMoviments";
 import { BottomNavigation, Header } from "@/components/layout/Header";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCategoryLabel, formatCurrencyBRL, formatDateBR, toAmountNumber } from "@/lib/finance";
+import { calculateInvestmentUpdatedValue, parseAnnualRateValue } from "@/lib/investments";
+import { fetchMonthly } from "@/lib/monthly";
 import { useFinanceTransactions } from "@/lib/use-finance-transactions";
 import { cn } from "@/lib/utils";
 
@@ -110,55 +113,41 @@ function getCategoryToneClasses(tone: CategoryTone): { icon: string; bar: string
   };
 }
 
-function parseAnnualRateValue(rate: number | string | null | undefined): number {
-  if (typeof rate === "number") {
-    return Number.isFinite(rate) ? rate : 0;
-  }
-
-  if (typeof rate === "string") {
-    const parsed = Number(rate.replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
-}
-
-function getFullMonthsElapsed(startInput: string, referenceDate: Date): number {
-  const startDate = new Date(startInput);
-  if (Number.isNaN(startDate.getTime())) return 0;
-
-  let months =
-    (referenceDate.getFullYear() - startDate.getFullYear()) * 12 +
-    (referenceDate.getMonth() - startDate.getMonth());
-
-  if (referenceDate.getDate() < startDate.getDate()) {
-    months -= 1;
-  }
-
-  return Math.max(0, months);
-}
-
-function calculateInvestmentUpdatedValue(amount: number, annualRate: number, date: string, now: Date): number {
-  if (!Number.isFinite(amount) || amount <= 0) return 0;
-  if (!Number.isFinite(annualRate) || annualRate <= 0) return amount;
-
-  const monthsElapsed = getFullMonthsElapsed(date, now);
-  if (monthsElapsed <= 0) return amount;
-
-  const monthlyFactor = Math.pow(1 + annualRate / 100, 1 / 12);
-  return amount * Math.pow(monthlyFactor, monthsElapsed);
-}
-
 export default function DashboardPage() {
   const { transactions, isLoading, error } = useFinanceTransactions();
+  const [monthlyItems, setMonthlyItems] = useState<Mensalidade[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadMonthly = async () => {
+      try {
+        const monthly = await fetchMonthly();
+        if (!active) return;
+        setMonthlyItems(monthly);
+      } catch {
+        if (!active) return;
+        setMonthlyItems([]);
+      }
+    };
+
+    void loadMonthly();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const summary = useMemo(() => {
     let income = 0;
-    let expense = 0;
+    let transactionExpense = 0;
     let investments = 0;
+    let investedAmount = 0;
     let incomeCount = 0;
     let expenseCount = 0;
     let investmentsCount = 0;
+    let paidMonthlyAmount = 0;
+    let paidMonthlyCount = 0;
     const now = new Date();
 
     for (const transaction of transactions) {
@@ -171,35 +160,55 @@ export default function DashboardPage() {
           incomeCount += 1;
         }
       } else {
-        expense += amount;
-        expenseCount += 1;
+        if (!isInvestment) {
+          transactionExpense += amount;
+          expenseCount += 1;
+        }
       }
 
       if (isInvestment) {
         const annualRate = parseAnnualRateValue(transaction.annualRate);
         investments += calculateInvestmentUpdatedValue(amount, annualRate, transaction.date, now);
+        investedAmount += amount;
         investmentsCount += 1;
       }
     }
 
+    for (const monthly of monthlyItems) {
+      if (!monthly.paidAt) continue;
+
+      paidMonthlyAmount += Math.abs(toAmountNumber(monthly.amount));
+      paidMonthlyCount += 1;
+    }
+
+    const totalExpense = transactionExpense + paidMonthlyAmount;
+    const availableBalance = income - totalExpense - investedAmount;
+
     return {
       income,
-      expense,
-      balance: income - expense,
+      expense: totalExpense,
+      transactionExpense,
+      paidMonthlyAmount,
+      paidMonthlyCount,
+      investedAmount,
+      balance: availableBalance,
       investments,
       investmentsCount,
       incomeCount,
       expenseCount,
       count: transactions.length,
     };
-  }, [transactions]);
+  }, [transactions, monthlyItems]);
 
   const summaryCards = useMemo(
     () => [
       {
         title: "Saldo Atual",
         value: formatCurrencyBRL(summary.balance),
-        trend: `${summary.count} movimentações`,
+        trend:
+          summary.paidMonthlyCount > 0
+            ? `${summary.count} mov. + ${summary.paidMonthlyCount} mensalidades pagas`
+            : `${summary.count} movimentações`,
         tone: "neutral" as const,
         icon: Wallet,
       },
@@ -213,14 +222,20 @@ export default function DashboardPage() {
       {
         title: "Despesas",
         value: formatCurrencyBRL(summary.expense),
-        trend: `${summary.expenseCount} saídas`,
+        trend:
+          summary.paidMonthlyCount > 0
+            ? `${summary.expenseCount} saídas + ${summary.paidMonthlyCount} mensalidades`
+            : `${summary.expenseCount} saídas`,
         tone: "negative" as const,
         icon: ArrowDownRight,
       },
       {
         title: "Investimentos",
         value: formatCurrencyBRL(summary.investments),
-        trend: summary.investmentsCount > 0 ? "Atualizado ao mês" : "Sem investimentos",
+        trend:
+          summary.investmentsCount > 0
+            ? `Aporte: ${formatCurrencyBRL(summary.investedAmount)}`
+            : "Sem investimentos",
         tone: "accent" as const,
         icon: PiggyBank,
       },

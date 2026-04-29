@@ -36,3 +36,13 @@ model Mensalidades {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 }
+
+model Notify {
+  id            String          @id @default(uuid())
+  title         String
+  type          String
+  message       String
+  is_read       String
+  createdAt     DateTime        @default(now())
+  read_at       DateTime        
+}

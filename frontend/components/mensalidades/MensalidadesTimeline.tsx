@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check } from "lucide-react";
 import { useState } from "react";
 
 import type { Mensalidade, MensalidadeStatus } from "@/components/mensalidades/types";
@@ -15,11 +15,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 type MensalidadesTimelineProps = {
   items: Mensalidade[];
+  onMarkAsPaid: (id: string) => Promise<void> | void;
 };
 
 function getDueDateTone(status: MensalidadeStatus, daysUntilDue: number): string {
@@ -50,59 +52,39 @@ function getRowClassName(status: MensalidadeStatus): string {
   return "hover:!bg-muted/35";
 }
 
-export function MensalidadesTimeline({ items }: MensalidadesTimelineProps) {
-  const [manuallyPaidIds, setManuallyPaidIds] = useState<Set<string>>(new Set());
-  const [canceledPaidIds, setCanceledPaidIds] = useState<Set<string>>(new Set());
+export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimelineProps) {
+  const [pendingPaidIds, setPendingPaidIds] = useState<Set<string>>(new Set());
+  const [selectedMensalidade, setSelectedMensalidade] = useState<Mensalidade | null>(null);
 
-  const handleMarkAsPaid = (id: string) => {
-    setManuallyPaidIds((current) => {
+  const handleMarkAsPaid = async (id: string) => {
+    let shouldRequest = false;
+
+    setPendingPaidIds((current) => {
       if (current.has(id)) return current;
 
       const next = new Set(current);
       next.add(id);
+      shouldRequest = true;
       return next;
     });
 
-    setCanceledPaidIds((current) => {
-      if (!current.has(id)) return current;
+    if (!shouldRequest) return;
 
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
-  };
-
-  const handleCancelPaid = (id: string, baseStatus: "paid" | "pending" | "overdue") => {
-    setManuallyPaidIds((current) => {
-      if (!current.has(id)) return current;
-
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
-
-    if (baseStatus === "paid") {
-      setCanceledPaidIds((current) => {
-        if (current.has(id)) return current;
-
+    try {
+      await onMarkAsPaid(id);
+    } finally {
+      setPendingPaidIds((current) => {
+        if (!current.has(id)) return current;
         const next = new Set(current);
-        next.add(id);
+        next.delete(id);
         return next;
       });
-      return;
     }
-
-    setCanceledPaidIds((current) => {
-      if (!current.has(id)) return current;
-
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
   };
 
   return (
-    <Card className="border-border/80 bg-gradient-to-b from-card to-card/95 shadow-[0_18px_46px_-26px_rgba(0,0,0,0.7)]">
+    <>
+      <Card className="border-border/80 bg-gradient-to-b from-card to-card/95 shadow-[0_18px_46px_-26px_rgba(0,0,0,0.7)]">
       <CardHeader className="border-b border-border/55 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -137,16 +119,9 @@ export function MensalidadesTimeline({ items }: MensalidadesTimelineProps) {
                 </TableRow>
               ) : (
                 items.map((item) => {
-                  const baseStatus = getMensalidadeStatus(item);
+                  const status = getMensalidadeStatus(item);
                   const daysUntilDue = getDaysUntilDue(item.dueDate);
-                  const status =
-                    manuallyPaidIds.has(item.id)
-                      ? "paid"
-                      : canceledPaidIds.has(item.id) && baseStatus === "paid"
-                        ? daysUntilDue < 0
-                          ? "overdue"
-                          : "pending"
-                        : baseStatus;
+                  const isPendingUpdate = pendingPaidIds.has(item.id);
 
                   const categoryVisual = resolveCategoryVisual(item.category);
                   const statusVisual = resolveStatusVisual(status, daysUntilDue);
@@ -165,6 +140,14 @@ export function MensalidadesTimeline({ items }: MensalidadesTimelineProps) {
                     <TableRow
                       key={item.id}
                       className={cn("group/row border-border/55 transition-colors odd:bg-background/15", getRowClassName(status))}
+                      onClick={() => setSelectedMensalidade(item)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedMensalidade(item);
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       <TableCell className="pl-5">
                         <div className="flex items-center gap-3">
@@ -229,21 +212,25 @@ export function MensalidadesTimeline({ items }: MensalidadesTimelineProps) {
                             size="xs"
                             variant="outline"
                             className="h-7 min-w-[92px] rounded-full border-success/45 bg-success/10 px-3 text-success hover:bg-success/15 hover:text-success"
-                            onClick={() => handleMarkAsPaid(item.id)}
+                            disabled={isPendingUpdate}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleMarkAsPaid(item.id);
+                            }}
                           >
                             <Check className="size-3" />
-                            Pago
+                            {isPendingUpdate ? "Salvando..." : "Pago"}
                           </Button>
                         ) : (
                           <Button
                             type="button"
                             size="xs"
                             variant="outline"
-                            className="h-7 min-w-[92px] rounded-full border-destructive/45 bg-destructive/10 px-3 text-destructive hover:bg-destructive/15 hover:text-destructive"
-                            onClick={() => handleCancelPaid(item.id, baseStatus)}
+                            disabled
+                            className="h-7 min-w-[92px] rounded-full border-success/35 bg-success/10 px-3 text-success"
                           >
-                            <X className="size-3" />
-                            Cancelar
+                            <Check className="size-3" />
+                            Pago
                           </Button>
                         )}
                       </TableCell>
@@ -255,6 +242,89 @@ export function MensalidadesTimeline({ items }: MensalidadesTimelineProps) {
           </Table>
         </div>
       </CardContent>
-    </Card>
+      </Card>
+
+      <Dialog
+        open={Boolean(selectedMensalidade)}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setSelectedMensalidade(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.1),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))]">
+          <DialogHeader>
+            <DialogTitle>Histórico de parcelas</DialogTitle>
+            <DialogDescription>
+              A parcela ativa avança automaticamente no dia 5, quando a parcela anterior estiver paga.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedMensalidade ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border/80 bg-background/65 px-4 py-3">
+                <p className="text-xs tracking-[0.12em] text-muted-foreground uppercase">Mensalidade</p>
+                <p className="mt-1 font-semibold text-foreground">{selectedMensalidade.name}</p>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-border/70 bg-background/65">
+                <Table>
+                  <TableHeader className="bg-card/70">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="pl-4">Parcela</TableHead>
+                      <TableHead>Vencimento</TableHead>
+                      <TableHead className="pr-4 text-right">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(selectedMensalidade.installmentHistory ?? []).map((entry) => {
+                      const entryDaysUntilDue = getDaysUntilDue(entry.dueDate);
+                      const entryVisual = resolveStatusVisual(entry.status, entryDaysUntilDue);
+                      const EntryStatusIcon = entryVisual.icon;
+                      const entryLabel =
+                        entry.status === "paid"
+                          ? "Pago"
+                          : entry.status === "overdue"
+                            ? "Atrasado"
+                            : entryDaysUntilDue === 0
+                              ? "Vence hoje"
+                              : "Pendente";
+
+                      return (
+                        <TableRow key={`${selectedMensalidade.id}-${entry.installmentNumber}`} className={cn(entry.isCurrent && "bg-primary/[0.07]")}>
+                          <TableCell className="pl-4">
+                            <p className="font-medium text-foreground tabular-nums">
+                              {entry.installmentNumber} de {entry.totalInstallments}
+                            </p>
+                            {entry.isCurrent ? (
+                              <p className="text-[11px] text-primary">Parcela atual</p>
+                            ) : null}
+                          </TableCell>
+
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {formatDueDate(entry.dueDate)}
+                          </TableCell>
+
+                          <TableCell className="pr-4 text-right">
+                            <Badge
+                              variant={entryVisual.badgeVariant}
+                              className={cn(
+                                "inline-flex min-w-[108px] justify-center gap-1 rounded-full px-2.5 py-1 text-[11px]",
+                                getStatusBadgeClassName(entry.status)
+                              )}
+                            >
+                              <EntryStatusIcon className="size-3.5" />
+                              {entryLabel}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

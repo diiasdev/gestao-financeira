@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { mensalidadesMock } from "@/components/mensalidades/data";
 import type { NovaMensalidadeInput } from "@/components/mensalidades/ButtonNovaMensalidade";
 import { MensalidadesFilters } from "@/components/mensalidades/MensalidadesFilters";
 import { MensalidadesHero } from "@/components/mensalidades/MensalidadesHero";
@@ -15,6 +14,8 @@ import {
   resolveCategoryVisual,
   sortMensalidadesByPriority,
 } from "@/components/mensalidades/utils";
+import { resolveMensalidadeCycle } from "@/lib/monthly-installments";
+import { fetchMonthly, markMonthlyAsPaid, registerMonthly } from "@/lib/monthly";
 
 const INITIAL_FILTERS: MensalidadesFiltersState = {
   status: "all",
@@ -33,11 +34,57 @@ function toLocalDateKey(input: string): string {
 }
 
 export function MensalidadesDashboard() {
-  const [mensalidades, setMensalidades] = useState<Mensalidade[]>(mensalidadesMock);
+  const [monthlyPlans, setMonthlyPlans] = useState<Mensalidade[]>([]);
   const [filters, setFilters] = useState<MensalidadesFiltersState>(INITIAL_FILTERS);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [referenceNow, setReferenceNow] = useState(() => new Date());
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+
+      try {
+        const monthly = await fetchMonthly();
+        if (!active) return;
+        setMonthlyPlans(monthly);
+      } catch (error) {
+        if (!active) return;
+        setLoadError(
+          error instanceof Error ? error.message : "Não foi possível carregar as mensalidades."
+        );
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setReferenceNow(new Date());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const mensalidades = useMemo(
+    () => monthlyPlans.map((item) => resolveMensalidadeCycle(item, referenceNow)),
+    [monthlyPlans, referenceNow]
+  );
 
   const categories = useMemo(() => {
-    const unique = new Set<MensalidadeCategory>(mensalidades.map((item) => item.category));
+    const unique = new Set<MensalidadeCategory>(monthlyPlans.map((item) => item.category));
 
     return Array.from(unique)
       .sort((a, b) => resolveCategoryVisual(a).label.localeCompare(resolveCategoryVisual(b).label, "pt-BR"))
@@ -45,7 +92,7 @@ export function MensalidadesDashboard() {
         value: category,
         label: resolveCategoryVisual(category).label,
       }));
-  }, [mensalidades]);
+  }, [monthlyPlans]);
 
   const filteredItems = useMemo(() => {
     return mensalidades.filter((item) => {
@@ -67,29 +114,32 @@ export function MensalidadesDashboard() {
   const orderedItems = useMemo(() => sortMensalidadesByPriority(filteredItems), [filteredItems]);
   const summary = useMemo(() => getMensalidadesSummary(filteredItems), [filteredItems]);
 
-  const handleCreateMensalidade = (input: NovaMensalidadeInput) => {
-    const normalizedId = input.name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  const handleCreateMensalidade = async (input: NovaMensalidadeInput) => {
+    const createdMonthly = await registerMonthly({
+      name: input.name,
+      category: input.category,
+      amount: input.amount,
+      dueDate: input.dueDate,
+      installmentsTotal: input.installmentsTotal,
+    });
 
-    const itemId = `${normalizedId || "mensalidade"}-${Date.now()}`;
+    setMonthlyPlans((current) => [...current, createdMonthly]);
+    setLoadError(null);
+  };
 
-    setMensalidades((current) => [
-      ...current,
-      {
-        id: itemId,
-        name: input.name,
-        category: input.category,
-        dueDate: input.dueDate,
-        amount: input.amount,
-        installmentCurrent: 1,
-        installmentTotal: input.installmentsTotal,
-        paidAt: null,
-      },
-    ]);
+  const handleMarkAsPaid = async (id: string) => {
+    try {
+      const updatedMonthly = await markMonthlyAsPaid(id);
+
+      setMonthlyPlans((current) =>
+        current.map((item) => (item.id === id ? { ...item, ...updatedMonthly } : item))
+      );
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Não foi possível atualizar o status da mensalidade."
+      );
+    }
   };
 
   const handleFiltersChange = (next: Partial<MensalidadesFiltersState>) => {
@@ -100,6 +150,12 @@ export function MensalidadesDashboard() {
     <div className="flex flex-col gap-4 sm:gap-6">
       <MensalidadesHero summary={summary} onCreateMensalidade={handleCreateMensalidade} />
       <MensalidadesMetrics summary={summary} />
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando mensalidades...</p>
+      ) : null}
+      {loadError ? (
+        <p className="text-sm text-destructive">{loadError}</p>
+      ) : null}
 
       <MensalidadesFilters
         filters={filters}
@@ -109,7 +165,7 @@ export function MensalidadesDashboard() {
         onClear={() => setFilters(INITIAL_FILTERS)}
       />
 
-      <MensalidadesTimeline items={orderedItems} />
+      <MensalidadesTimeline items={orderedItems} onMarkAsPaid={handleMarkAsPaid} />
     </div>
   );
 }

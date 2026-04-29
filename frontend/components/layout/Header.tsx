@@ -1,10 +1,24 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { cva } from "class-variance-authority";
-import { ArrowLeftRight, Bell, CalendarDays, LayoutDashboard } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  Bell,
+  CalendarDays,
+  CircleCheckBig,
+  PiggyBank,
+  LayoutDashboard,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import type { ComponentType } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export type HeaderTab = "dashboard" | "transactions" | "mensalidades";
@@ -12,6 +26,55 @@ export type HeaderTab = "dashboard" | "transactions" | "mensalidades";
 type HeaderProps = {
   activeTab: HeaderTab;
 };
+
+type NotificationTone = "warning" | "success" | "primary" | "neutral";
+
+type NotificationItem = {
+  id: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  icon: LucideIcon;
+  tone: NotificationTone;
+  unread?: boolean;
+};
+
+const notificationsMock: NotificationItem[] = [
+  {
+    id: "n1",
+    title: "Mensalidade vence amanhã",
+    description: "Plano de Internet Fibra vence em 1 dia. Revise saldo para evitar atraso.",
+    timestamp: "Há 3 min",
+    icon: AlertTriangle,
+    tone: "warning",
+    unread: true,
+  },
+  {
+    id: "n2",
+    title: "Mensalidade marcada como paga",
+    description: "Condomínio foi atualizado para pago e removido da lista em aberto.",
+    timestamp: "Há 18 min",
+    icon: CircleCheckBig,
+    tone: "success",
+    unread: true,
+  },
+  {
+    id: "n3",
+    title: "Aporte registrado",
+    description: "Investimento de R$ 120,00 registrado com rendimento mensal automático.",
+    timestamp: "Hoje, 09:42",
+    icon: PiggyBank,
+    tone: "primary",
+  },
+  {
+    id: "n4",
+    title: "Saldo atual atualizado",
+    description: "O painel recalculou o saldo após pagamento de mensalidades e aportes.",
+    timestamp: "Ontem, 21:10",
+    icon: Wallet,
+    tone: "neutral",
+  },
+];
 
 const tabs: Array<{
   id: HeaderTab;
@@ -58,6 +121,13 @@ const tabTriggerVariants = cva(
 );
 
 const surfaceVariants = cva("rounded-2xl border border-border bg-background/70");
+
+function getNotificationToneClasses(tone: NotificationTone): string {
+  if (tone === "warning") return "border-destructive/40 bg-destructive/15 text-destructive";
+  if (tone === "success") return "border-success/40 bg-success/15 text-success";
+  if (tone === "primary") return "border-primary/45 bg-primary/15 text-primary";
+  return "border-border/80 bg-muted/65 text-muted-foreground";
+}
 
 type HeaderTabsProps = {
   activeTab: HeaderTab;
@@ -151,6 +221,8 @@ export function BottomNavigation({ activeTab }: HeaderTabsProps) {
 }
 
 export function Header({ activeTab }: HeaderProps) {
+  const unreadCount = notificationsMock.filter((item) => item.unread).length;
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-linear-to-r from-card via-card to-background/90 backdrop-blur">
       <div className="animate-in fade-in-0 slide-in-from-top-2 mx-auto w-full max-w-7xl px-3 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2 duration-500 sm:px-6 sm:pb-3 lg:px-8">
@@ -170,16 +242,86 @@ export function Header({ activeTab }: HeaderProps) {
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2 lg:min-w-[236px] lg:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="relative size-10 rounded-xl border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/70 hover:text-primary"
-              aria-label="Notificações"
-            >
-              <Bell className="size-4" />
-              <span className="absolute top-2 right-2 size-2 rounded-full bg-success shadow-[0_0_12px_rgba(46,204,113,0.75)]" />
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="relative size-10 rounded-xl border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/70 hover:text-primary"
+                  aria-label="Notificações"
+                >
+                  <Bell className="size-4" />
+                  {unreadCount > 0 ? (
+                    <>
+                      <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-success shadow-[0_0_12px_rgba(46,204,113,0.75)]" />
+                      <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-success/40 bg-success px-1 text-[10px] font-semibold leading-none text-success-foreground">
+                        {unreadCount}
+                      </span>
+                    </>
+                  ) : null}
+                </Button>
+              </PopoverTrigger>
+
+              <PopoverContent
+                sideOffset={12}
+                align="end"
+                className="w-[min(92vw,26rem)] rounded-2xl border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.12),transparent_48%),linear-gradient(140deg,rgba(30,30,30,0.98),rgba(18,18,18,0.95))] p-0 shadow-[0_24px_45px_rgba(0,0,0,0.52)]"
+              >
+                <div className="border-b border-border/70 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Notificações</p>
+                      <p className="text-xs text-muted-foreground">Atualizações recentes do seu painel financeiro.</p>
+                    </div>
+                    <Badge variant={unreadCount > 0 ? "success" : "secondary"} className="mt-0.5">
+                      {unreadCount > 0 ? `${unreadCount} novas` : "Tudo em dia"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="max-h-[68vh] overflow-y-auto px-2 py-2 sm:max-h-[24rem]">
+                  <div className="space-y-1.5">
+                    {notificationsMock.map((item) => {
+                      const Icon = item.icon;
+
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="group w-full rounded-xl border border-transparent px-2.5 py-2.5 text-left transition-colors hover:border-border/75 hover:bg-background/65"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border", getNotificationToneClasses(item.tone))}>
+                              <Icon className="size-4" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+                                {item.unread ? <span className="size-1.5 shrink-0 rounded-full bg-success" /> : null}
+                              </div>
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground/90">{item.timestamp}</p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/70 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="xs" variant="outline" className="flex-1 rounded-lg">
+                      Marcar todas como lidas
+                    </Button>
+                    <Button type="button" size="xs" className="flex-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
+                      Ver central
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
 
             <div className={cn(surfaceVariants(), "flex items-center gap-2 px-2.5 py-1.5")}>
               <Image

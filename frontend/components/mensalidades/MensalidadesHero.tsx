@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/c
 
 type MensalidadesHeroProps = {
   summary: MensalidadesSummary;
-  onCreateMensalidade: (input: NovaMensalidadeInput) => void;
+  onCreateMensalidade: (input: NovaMensalidadeInput) => Promise<void> | void;
 };
 
 export function MensalidadesHero({ summary, onCreateMensalidade }: MensalidadesHeroProps) {

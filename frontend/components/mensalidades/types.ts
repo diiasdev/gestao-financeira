@@ -8,6 +8,14 @@ export type MensalidadeCategory =
 
 export type MensalidadeStatus = "paid" | "pending" | "overdue";
 
+export type MensalidadeInstallmentHistoryItem = {
+  installmentNumber: number;
+  totalInstallments: number;
+  dueDate: string;
+  status: MensalidadeStatus;
+  isCurrent: boolean;
+};
+
 export type Mensalidade = {
   id: string;
   name: string;
@@ -17,7 +25,10 @@ export type Mensalidade = {
   installmentCurrent?: number;
   installmentTotal?: number;
   paidAt?: string | null;
+  statusRaw?: string | null;
+  updatedAt?: string;
   autopay?: boolean;
+  installmentHistory?: MensalidadeInstallmentHistoryItem[];
 };
 
 export type MensalidadesSummary = {
