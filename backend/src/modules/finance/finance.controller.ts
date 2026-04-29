@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { FinanceService } from './finance.service';
 import type { TransactionDto } from './finance.service';
 
@@ -14,5 +14,10 @@ export class FinanceController {
   @Get()
   async getTransactions() {
     return this.financeService.getTransactions();
+  }
+
+  @Patch(':id/edit')
+  async editTransactions(@Param('id') id: string, @Body() dto: TransactionDto) {
+    return this.financeService.editTransactions(id, dto);
   }
 }

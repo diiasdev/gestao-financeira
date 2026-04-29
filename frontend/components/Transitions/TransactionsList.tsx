@@ -6,29 +6,128 @@ import {
   resolveCategoryVisual,
   resolvePaymentMethodVisual,
 } from "@/components/Transitions/transaction-visuals";
-import { CalendarClock, PiggyBank } from "lucide-react";
+import { CalendarClock, Paperclip, Pencil, PiggyBank } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   API_BASE_URL,
+  FINANCE_UPDATED_EVENT,
+  formatCategoryLabel,
   formatCurrencyBRL,
   formatDateBR,
   toAmountNumber,
+  updateTransaction,
+  type FinanceTransactionType,
   type FinanceTransaction,
 } from "@/lib/finance";
 import { getInvestmentSnapshot } from "@/lib/investments";
+import { BASE_TRANSACTION_CATEGORIES, EXTRA_INCOME_TRANSACTION_CATEGORY } from "@/lib/transaction-categories";
 import { cn } from "@/lib/utils";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 type TransactionsListProps = {
   transactions: FinanceTransaction[];
   isLoading: boolean;
   error: string | null;
 };
+
+type PaymentMethodOption = {
+  value: string;
+  label: string;
+};
+
+type EditFormState = {
+  type: FinanceTransactionType;
+  description: string;
+  amount: string;
+  annualRate: string;
+  category: string;
+  date: string;
+  paymentMethod: string;
+  receiptFileName: string;
+};
+
+const PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
+  { value: "pix", label: "Pix" },
+  { value: "credito", label: "Crédito" },
+  { value: "debito", label: "Débito" },
+];
+
+const FALLBACK_DATE = new Date().toISOString().slice(0, 10);
+
+function toInputDate(input: string): string {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return FALLBACK_DATE;
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toApiDate(input: string): string {
+  const parsed = new Date(`${input}T12:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+  return parsed.toISOString();
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Não foi possível ler o arquivo."));
+    };
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getApiErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const message = (payload as { message?: unknown }).message;
+  if (typeof message === "string" && message.trim()) return message;
+
+  if (Array.isArray(message)) {
+    const parsed = message.filter((item): item is string => typeof item === "string");
+    return parsed.length > 0 ? parsed.join(", ") : null;
+  }
+
+  return null;
+}
+
+function toFriendlySubmitError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("request entity too large") ||
+    normalized.includes("payloadtoolargeerror") ||
+    normalized.includes("entity.too.large")
+  ) {
+    return "O arquivo do comprovante é muito grande. Tente um arquivo menor (até ~8 MB).";
+  }
+
+  return message || "Não foi possível editar a movimentação.";
+}
 
 function resolveReceiptLink(receiptUrl?: string | null): string | null {
   const value = receiptUrl?.trim();
@@ -50,7 +149,23 @@ function resolveReceiptLink(receiptUrl?: string | null): string | null {
 }
 
 export function TransactionsList({ transactions, isLoading, error }: TransactionsListProps) {
+  const editReceiptInputId = useId();
   const [selectedInvestment, setSelectedInvestment] = useState<FinanceTransaction | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<FinanceTransaction | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState>({
+    type: "EXPENSE",
+    description: "",
+    amount: "",
+    annualRate: "",
+    category: "",
+    date: FALLBACK_DATE,
+    paymentMethod: "",
+    receiptFileName: "",
+  });
+  const [editReceiptFile, setEditReceiptFile] = useState<File | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
   const selectedSnapshot = useMemo(() => {
     if (!selectedInvestment) return null;
 
@@ -61,11 +176,157 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
     });
   }, [selectedInvestment]);
 
+  const editCategoryOptions = useMemo(() => {
+    const categoryOptions =
+      editForm.type === "INCOME"
+        ? [...BASE_TRANSACTION_CATEGORIES, EXTRA_INCOME_TRANSACTION_CATEGORY]
+        : BASE_TRANSACTION_CATEGORIES;
+
+    const hasCategory = categoryOptions.some(
+      (option) => normalizeCategory(option.value) === normalizeCategory(editForm.category)
+    );
+
+    if (hasCategory || !editForm.category.trim()) return categoryOptions;
+
+    return [
+      ...categoryOptions,
+      {
+        value: editForm.category,
+        label: formatCategoryLabel(editForm.category),
+      },
+    ];
+  }, [editForm.category, editForm.type]);
+
+  const editPaymentMethodOptions = useMemo(() => {
+    const hasPaymentMethod = PAYMENT_METHOD_OPTIONS.some(
+      (option) => normalizeCategory(option.value) === normalizeCategory(editForm.paymentMethod)
+    );
+
+    if (hasPaymentMethod || !editForm.paymentMethod.trim()) return PAYMENT_METHOD_OPTIONS;
+
+    return [
+      ...PAYMENT_METHOD_OPTIONS,
+      {
+        value: editForm.paymentMethod,
+        label: formatCategoryLabel(editForm.paymentMethod),
+      },
+    ];
+  }, [editForm.paymentMethod]);
+
+  const isEditingInvestment = normalizeCategory(editForm.category) === "investimentos";
+
   const handleOpenInvestment = (transaction: FinanceTransaction) => {
     const isInvestment = normalizeCategory(transaction.category) === "investimentos";
     if (!isInvestment) return;
 
     setSelectedInvestment(transaction);
+  };
+
+  const handleOpenEdit = (transaction: FinanceTransaction) => {
+    setEditingTransaction(transaction);
+    setEditReceiptFile(null);
+    setEditError(null);
+    setEditForm({
+      type: transaction.type,
+      description: transaction.description ?? "",
+      amount: toAmountNumber(transaction.amount).toString(),
+      annualRate:
+        transaction.annualRate !== null && transaction.annualRate !== undefined
+          ? toAmountNumber(transaction.annualRate).toString()
+          : "",
+      category: normalizeCategory(transaction.category),
+      date: toInputDate(transaction.date),
+      paymentMethod: normalizeCategory(transaction.paymentMethod),
+      receiptFileName: "",
+    });
+  };
+
+  const handleEditTypeChange = (type: FinanceTransactionType) => {
+    setEditForm((current) => {
+      const isPaymentCategory = normalizeCategory(current.category) === EXTRA_INCOME_TRANSACTION_CATEGORY.value;
+      const nextCategory = type === "EXPENSE" && isPaymentCategory
+        ? BASE_TRANSACTION_CATEGORIES[0]?.value ?? "moradia"
+        : current.category;
+
+      return {
+        ...current,
+        type,
+        category: nextCategory,
+      };
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTransaction) return;
+
+    const description = editForm.description.trim();
+    const amount = Number(editForm.amount.replace(",", "."));
+    const category = editForm.category.trim();
+    const paymentMethod = editForm.paymentMethod.trim();
+    const annualRate = Number(editForm.annualRate.replace(",", "."));
+
+    if (!description) {
+      setEditError("Informe a descrição.");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setEditError("Informe um valor válido maior que zero.");
+      return;
+    }
+
+    if (!category) {
+      setEditError("Selecione uma categoria.");
+      return;
+    }
+
+    if (!paymentMethod) {
+      setEditError("Selecione a forma de pagamento.");
+      return;
+    }
+
+    if (!editForm.date) {
+      setEditError("Selecione a data.");
+      return;
+    }
+
+    if (isEditingInvestment && (!Number.isFinite(annualRate) || annualRate <= 0)) {
+      setEditError("Informe uma taxa anual válida maior que zero para investimentos.");
+      return;
+    }
+
+    setIsSubmittingEdit(true);
+    setEditError(null);
+
+    try {
+      const nextReceiptUrl = editReceiptFile
+        ? await fileToDataUrl(editReceiptFile)
+        : editingTransaction.receiptUrl ?? undefined;
+
+      await updateTransaction({
+        id: editingTransaction.id,
+        type: editForm.type,
+        description,
+        amount,
+        annualRate: isEditingInvestment ? annualRate : undefined,
+        category,
+        date: toApiDate(editForm.date),
+        paymentMethod,
+        receiptUrl: nextReceiptUrl,
+      });
+
+      setEditingTransaction(null);
+      setEditReceiptFile(null);
+      window.dispatchEvent(new Event(FINANCE_UPDATED_EVENT));
+    } catch (saveError) {
+      if (saveError instanceof Error) {
+        setEditError(toFriendlySubmitError(saveError));
+      } else {
+        setEditError(getApiErrorMessage(saveError) ?? "Não foi possível editar a movimentação.");
+      }
+    } finally {
+      setIsSubmittingEdit(false);
+    }
   };
 
   return (
@@ -114,6 +375,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                       <TableHead>Pagamento</TableHead>
                       <TableHead>Comprovantes</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -185,6 +447,20 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                           </TableCell>
                           <TableCell className={cn("text-right text-base font-semibold whitespace-nowrap tabular-nums", amountClass)}>
                             {`${isIncome ? "+" : "-"}${formatCurrencyBRL(amount)}`}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenEdit(item);
+                              }}
+                            >
+                              <Pencil className="size-3.5" />
+                              Editar
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -261,6 +537,21 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                         )}
                       </div>
 
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenEdit(item);
+                          }}
+                        >
+                          <Pencil className="size-3.5" />
+                          Editar
+                        </Button>
+                      </div>
+
                       {index < transactions.length - 1 ? <Separator className="opacity-35" /> : null}
                     </div>
                   );
@@ -270,6 +561,219 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(editingTransaction)}
+        onOpenChange={(isOpen) => {
+          if (isSubmittingEdit) return;
+          if (!isOpen) {
+            setEditingTransaction(null);
+            setEditReceiptFile(null);
+            setEditError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.12),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="size-5 text-primary" />
+              Editar movimentação
+            </DialogTitle>
+            <DialogDescription>
+              Atualize os dados da movimentação e salve para aplicar no histórico.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <Select
+                  value={editForm.type}
+                  onValueChange={(value) => handleEditTypeChange(value as FinanceTransactionType)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="INCOME">Entrada</SelectItem>
+                    <SelectItem value="EXPENSE">Saída</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Data</Label>
+                <Input
+                  type="date"
+                  value={editForm.date}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, date: event.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Input
+                value={editForm.description}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, description: event.target.value }))
+                }
+                placeholder="Ex.: Compra supermercado"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Valor</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editForm.amount}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, amount: event.target.value }))
+                  }
+                  placeholder="0,00"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Forma de pagamento</Label>
+                <Select
+                  value={editForm.paymentMethod}
+                  onValueChange={(value) =>
+                    setEditForm((current) => ({ ...current, paymentMethod: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a forma" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editPaymentMethodOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Categoria</Label>
+                <Select
+                  value={editForm.category}
+                  onValueChange={(value) =>
+                    setEditForm((current) => ({ ...current, category: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editCategoryOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Comprovante</Label>
+                <div className="flex h-11 items-center gap-3 rounded-xl border border-input bg-background px-2.5">
+                  <input
+                    id={editReceiptInputId}
+                    type="file"
+                    accept=".pdf,image/*"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setEditReceiptFile(file);
+                      setEditForm((current) => ({
+                        ...current,
+                        receiptFileName: file?.name ?? "",
+                      }));
+                    }}
+                  />
+                  <label
+                    htmlFor={editReceiptInputId}
+                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-primary/15 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/25"
+                  >
+                    <Paperclip className="size-3.5" />
+                    Escolher arquivo
+                  </label>
+                  <span
+                    className={cn(
+                      "truncate text-sm",
+                      editForm.receiptFileName || editingTransaction?.receiptUrl
+                        ? "text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {editForm.receiptFileName ||
+                      (editingTransaction?.receiptUrl
+                        ? "Comprovante atual salvo"
+                        : "Nenhum arquivo escolhido")}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {isEditingInvestment ? (
+              <div className="space-y-2">
+                <Label>Taxa anual (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editForm.annualRate}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, annualRate: event.target.value }))
+                  }
+                  placeholder="12.50"
+                />
+              </div>
+            ) : null}
+
+            {editError ? (
+              <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {editError}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter className="mt-3 gap-3 border-t border-border/60 pt-4 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl px-4"
+              onClick={() => {
+                if (isSubmittingEdit) return;
+                setEditingTransaction(null);
+                setEditReceiptFile(null);
+                setEditError(null);
+              }}
+              disabled={isSubmittingEdit}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl px-4 font-semibold"
+              onClick={() => void handleSaveEdit()}
+              disabled={isSubmittingEdit}
+            >
+              {isSubmittingEdit ? "Salvando..." : "Salvar alterações"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(selectedInvestment)}

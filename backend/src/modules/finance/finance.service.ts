@@ -30,7 +30,6 @@ export class FinanceService {
 
   async registerTransaction(dto: TransactionDto) {
     try {
-      // Campos: Tipo (Entrada - Saida), Descricao, Valor, Categoria, Data, Forma de pagamento, Comprovante.
 
       const newMoviment = await this.prisma.transaction.create({
         data: {
@@ -79,4 +78,35 @@ export class FinanceService {
       },
     });
   }
+
+  editTransactions = async (id: string, dto: TransactionDto) => {
+    try {
+      const edited = await this.prisma.transaction.update({
+        where: { id },
+        data: {
+          type: dto.type,
+          description: dto.description,
+          amount: dto.amount,
+          annualRate: dto.annualRate,
+          category: dto.category,
+          date: dto.date,
+          paymentMethod: dto.paymentMethod,
+          receiptUrl: dto.receiptUrl,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Sucesso ao editar Notificação',
+        data: edited,
+      };
+    } catch (error: any) {
+      console.error('Erro ao editar Movimentação: ', error);
+      return {
+        success: false,
+        message: 'Erro ao editar movimentação',
+        data: [],
+      };
+    }
+  };
 }

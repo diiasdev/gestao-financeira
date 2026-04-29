@@ -21,11 +21,64 @@ export type FinanceTransaction = {
   updatedAt: string;
 };
 
+export type UpdateFinanceTransactionInput = {
+  id: string;
+  type: FinanceTransactionType;
+  description: string;
+  amount: number;
+  annualRate?: number;
+  category: string;
+  date: string;
+  paymentMethod: string;
+  receiptUrl?: string;
+};
+
 type FinanceTransactionsResponse =
   | FinanceTransaction[]
   | {
       data?: unknown;
     };
+
+type FinanceMutationResponse = {
+  success?: boolean;
+  message?: unknown;
+  data?: unknown;
+};
+
+function getApiErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const message = (payload as { message?: unknown }).message;
+
+  if (typeof message === "string" && message.trim()) return message;
+
+  if (Array.isArray(message)) {
+    const parsed = message.filter((item): item is string => typeof item === "string");
+    return parsed.length > 0 ? parsed.join(", ") : null;
+  }
+
+  return null;
+}
+
+function toFinanceTransaction(payload: unknown): FinanceTransaction | null {
+  if (!payload || typeof payload !== "object") return null;
+  const row = payload as Record<string, unknown>;
+
+  if (
+    typeof row.id !== "string" ||
+    typeof row.type !== "string" ||
+    typeof row.description !== "string" ||
+    (typeof row.amount !== "number" && typeof row.amount !== "string") ||
+    typeof row.category !== "string" ||
+    typeof row.date !== "string" ||
+    typeof row.paymentMethod !== "string" ||
+    typeof row.createdAt !== "string" ||
+    typeof row.updatedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return row as unknown as FinanceTransaction;
+}
 
 export function toAmountNumber(amount: number | string): number {
   if (typeof amount === "number") {
@@ -81,4 +134,45 @@ export async function fetchTransactions(): Promise<FinanceTransaction[]> {
   }
 
   return [];
+}
+
+export async function updateTransaction(
+  input: UpdateFinanceTransactionInput
+): Promise<FinanceTransaction> {
+  const response = await fetch(`${API_BASE_URL}/finance/${input.id}/edit`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: input.type,
+      description: input.description,
+      amount: input.amount,
+      annualRate: input.annualRate,
+      category: input.category,
+      date: input.date,
+      paymentMethod: input.paymentMethod,
+      receiptUrl: input.receiptUrl,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as FinanceMutationResponse | null;
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload) ?? "Não foi possível editar a movimentação.");
+  }
+
+  if (payload?.success === false) {
+    throw new Error(getApiErrorMessage(payload) ?? "Não foi possível editar a movimentação.");
+  }
+
+  const updated =
+    payload && typeof payload === "object" && "data" in payload
+      ? toFinanceTransaction(payload.data)
+      : null;
+
+  if (!updated) {
+    throw new Error("Resposta inválida ao editar movimentação.");
+  }
+
+  return updated;
 }

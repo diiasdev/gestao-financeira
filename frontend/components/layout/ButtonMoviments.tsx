@@ -249,6 +249,22 @@ function formatAnnualRateInput(value: string): string {
   return decimal.length > 0 ? `${integerPart}.${decimal}` : integerPart;
 }
 
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Não foi possível ler o arquivo."));
+    };
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
 
@@ -263,9 +279,25 @@ function getApiErrorMessage(data: unknown): string | null {
   return null;
 }
 
+function toFriendlySubmitError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("request entity too large") ||
+    normalized.includes("payloadtoolargeerror") ||
+    normalized.includes("entity.too.large")
+  ) {
+    return "O arquivo do comprovante é muito grande. Tente um arquivo menor (até ~8 MB).";
+  }
+
+  return message || "Não foi possível registrar a movimentação.";
+}
+
 export function ButtonMoviments() {
   const receiptInputId = useId();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedReceiptFile, setSelectedReceiptFile] = useState<File | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successAlert, setSuccessAlert] = useState<string | null>(null);
 
@@ -322,18 +354,22 @@ export function ButtonMoviments() {
       ? parseAnnualRate(values.annualRate ?? "")
       : undefined;
 
-    const payload: RegisterMovementPayload = {
-      type: values.movementType === "income" ? "INCOME" : "EXPENSE",
-      description: values.description,
-      amount: parsedAmount,
-      annualRate: Number.isFinite(annualRate) ? annualRate : undefined,
-      category: values.category,
-      date: values.date.toISOString(),
-      paymentMethod: values.paymentMethod,
-      receiptUrl: values.receipt || undefined,
-    };
-
     try {
+      const receiptUrl = selectedReceiptFile
+        ? await fileToDataUrl(selectedReceiptFile)
+        : undefined;
+
+      const payload: RegisterMovementPayload = {
+        type: values.movementType === "income" ? "INCOME" : "EXPENSE",
+        description: values.description,
+        amount: parsedAmount,
+        annualRate: Number.isFinite(annualRate) ? annualRate : undefined,
+        category: values.category,
+        date: values.date.toISOString(),
+        paymentMethod: values.paymentMethod,
+        receiptUrl,
+      };
+
       const response = await fetch(`${API_BASE_URL}/finance`, {
         method: "POST",
         headers: {
@@ -357,6 +393,7 @@ export function ButtonMoviments() {
       }
 
       form.reset(defaultMovementValues);
+      setSelectedReceiptFile(null);
       setDialogOpen(false);
       setSuccessAlert("Movimentação registrada com sucesso.");
       window.dispatchEvent(new Event(FINANCE_UPDATED_EVENT));
@@ -367,7 +404,7 @@ export function ButtonMoviments() {
         return;
       }
 
-      setSubmitError(error instanceof Error ? error.message : "Não foi possível registrar a movimentação.");
+      setSubmitError(toFriendlySubmitError(error));
     }
   };
 
@@ -377,7 +414,11 @@ export function ButtonMoviments() {
         open={dialogOpen}
         onOpenChange={(isOpen) => {
           setDialogOpen(isOpen);
-          if (!isOpen) setSubmitError(null);
+          if (!isOpen) {
+            setSubmitError(null);
+            setSelectedReceiptFile(null);
+            form.setValue("receipt", "", { shouldValidate: false, shouldDirty: false });
+          }
         }}
       >
         <DialogTrigger asChild>
@@ -476,7 +517,11 @@ export function ButtonMoviments() {
                         name={field.name}
                         onBlur={field.onBlur}
                         ref={field.ref}
-                        onChange={(event) => field.onChange(event.target.files?.[0]?.name ?? "")}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+                          setSelectedReceiptFile(file);
+                          field.onChange(file?.name ?? "");
+                        }}
                       />
 
                       <label

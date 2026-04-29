@@ -1,9 +1,13 @@
 import 'dotenv/config';
+import { json, urlencoded } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.use(json({ limit: '12mb' }));
+  app.use(urlencoded({ extended: true, limit: '12mb' }));
 
   const allowedOrigins = new Set<string>([
     'http://localhost:3000',
