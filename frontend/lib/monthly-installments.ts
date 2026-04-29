@@ -46,6 +46,33 @@ function resolveInstallmentDueDate(firstDueDate: Date, installmentNumber: number
   return buildRolloverDate(firstDueDate.getFullYear(), firstDueDate.getMonth() + monthOffset);
 }
 
+function isCurrentInstallmentPaid(params: {
+  paidAt: Date | null;
+  statusPaid: boolean;
+  firstDueDate: Date;
+  installmentNumber: number;
+  totalInstallments: number;
+}): boolean {
+  const { paidAt, statusPaid, firstDueDate, installmentNumber, totalInstallments } = params;
+  if (!statusPaid || !paidAt) return false;
+
+  const previousDueDate =
+    installmentNumber > 1
+      ? resolveInstallmentDueDate(firstDueDate, installmentNumber - 1)
+      : null;
+  const nextDueDate =
+    installmentNumber < totalInstallments
+      ? resolveInstallmentDueDate(firstDueDate, installmentNumber + 1)
+      : null;
+
+  const afterPreviousDueDate = previousDueDate
+    ? paidAt.getTime() >= previousDueDate.getTime()
+    : true;
+  const beforeNextDueDate = nextDueDate ? paidAt.getTime() < nextDueDate.getTime() : true;
+
+  return afterPreviousDueDate && beforeNextDueDate;
+}
+
 function resolveCurrentInstallmentNumber(item: Mensalidade, now: Date): number {
   const total = Math.max(1, item.installmentTotal ?? 1);
   let current = Math.min(Math.max(1, item.installmentCurrent ?? 1), total);
@@ -55,9 +82,14 @@ function resolveCurrentInstallmentNumber(item: Mensalidade, now: Date): number {
   const firstDueDate = resolveFirstInstallmentDueDate(item.dueDate);
 
   while (current < total) {
-    const currentDueDate = resolveInstallmentDueDate(firstDueDate, current);
     const nextDueDate = resolveInstallmentDueDate(firstDueDate, current + 1);
-    const currentInstallmentPaid = statusPaid && paidAt && paidAt.getTime() >= currentDueDate.getTime();
+    const currentInstallmentPaid = isCurrentInstallmentPaid({
+      paidAt,
+      statusPaid,
+      firstDueDate,
+      installmentNumber: current,
+      totalInstallments: total,
+    });
 
     if (!currentInstallmentPaid) break;
     if (now.getTime() < nextDueDate.getTime()) break;
@@ -83,11 +115,13 @@ function resolveCurrentInstallmentStatus(params: {
 
   const paidAt = item.paidAt ? toDate(item.paidAt) : null;
   const statusPaid = isPaidStatus(item.statusRaw) || Boolean(item.paidAt);
-  const currentInstallmentPaid =
-    statusPaid &&
-    paidAt &&
-    paidAt.getTime() >= currentDueDate.getTime() &&
-    (!nextDueDate || paidAt.getTime() < nextDueDate.getTime());
+  const currentInstallmentPaid = isCurrentInstallmentPaid({
+    paidAt,
+    statusPaid,
+    firstDueDate,
+    installmentNumber: currentInstallmentNumber,
+    totalInstallments: Math.max(1, item.installmentTotal ?? 1),
+  });
 
   if (currentInstallmentPaid) return "paid";
   if (now.getTime() > currentDueDate.getTime()) return "overdue";
