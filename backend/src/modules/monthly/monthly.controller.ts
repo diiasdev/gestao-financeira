@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { type MonthlyDto, MonthlyService } from './monthly.service';
 
 @Controller('monthly')
@@ -18,5 +18,15 @@ export class MonthlyController {
   @Patch(':id/paid')
   async paidStatus(@Param('id') id: string) {
     return this.monthlyService.paidStatus(id);
+  }
+
+  @Patch(':id/edit')
+  async editMonthly(@Param('id') id: string, @Body() dto: MonthlyDto) {
+    return this.monthlyService.editMonthly(id, dto);
+  }
+
+  @Delete(':id/delete')
+  async deleteMonthly(@Param('id') id: string) {
+    return this.monthlyService.deleteMonthly(id);
   }
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import type { Mensalidade, MensalidadeStatus } from "@/components/mensalidades/types";
+import type { Mensalidade, MensalidadeCategory, MensalidadeStatus } from "@/components/mensalidades/types";
 import {
   formatAmount,
   formatDueDate,
@@ -15,13 +15,47 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 type MensalidadesTimelineProps = {
   items: Mensalidade[];
   onMarkAsPaid: (id: string) => Promise<void> | void;
+  onEditMensalidade: (input: {
+    id: string;
+    name: string;
+    category: MensalidadeCategory;
+    dueDate: string;
+    amount: number;
+    installmentsTotal: number;
+    status?: string | null;
+  }) => Promise<void> | void;
+  onDeleteMensalidade: (id: string) => Promise<void> | void;
+};
+
+type EditFormState = {
+  name: string;
+  category: MensalidadeCategory;
+  dueDate: string;
+  amount: string;
+  installmentsTotal: string;
 };
 
 function getDueDateTone(status: MensalidadeStatus, daysUntilDue: number): string {
@@ -52,9 +86,77 @@ function getRowClassName(status: MensalidadeStatus): string {
   return "hover:!bg-muted/35";
 }
 
-export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimelineProps) {
+const CATEGORY_OPTIONS: MensalidadeCategory[] = [
+  "moradia",
+  "utilidades",
+  "servicos",
+  "assinaturas",
+  "educacao",
+  "saude",
+];
+
+function toInputDate(input: string): string {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseAmount(value: string): number {
+  const cleaned = value.trim().replace(/[^\d,.-]/g, "");
+  if (!cleaned) return Number.NaN;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  const decimalSeparator = lastComma > lastDot ? "," : lastDot > lastComma ? "." : null;
+
+  if (!decimalSeparator) return Number(cleaned);
+
+  const thousandSeparator = decimalSeparator === "," ? "." : ",";
+  const withoutThousandSeparator = cleaned.split(thousandSeparator).join("");
+  const normalized =
+    decimalSeparator === ","
+      ? withoutThousandSeparator.replace(",", ".")
+      : withoutThousandSeparator;
+
+  return Number(normalized);
+}
+
+function formatAmountInput(value: string): string {
+  const digitsOnly = value.replace(/\D/g, "");
+  if (!digitsOnly) return "";
+
+  const amount = Number(digitsOnly) / 100;
+
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(amount);
+}
+
+export function MensalidadesTimeline({
+  items,
+  onMarkAsPaid,
+  onEditMensalidade,
+  onDeleteMensalidade,
+}: MensalidadesTimelineProps) {
   const [pendingPaidIds, setPendingPaidIds] = useState<Set<string>>(new Set());
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const [selectedMensalidade, setSelectedMensalidade] = useState<Mensalidade | null>(null);
+  const [editingMensalidade, setEditingMensalidade] = useState<Mensalidade | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState>({
+    name: "",
+    category: "servicos",
+    dueDate: new Date().toISOString().slice(0, 10),
+    amount: "",
+    installmentsTotal: "1",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const handleMarkAsPaid = async (id: string) => {
     let shouldRequest = false;
@@ -82,6 +184,104 @@ export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimeli
     }
   };
 
+  const handleOpenEdit = (item: Mensalidade) => {
+    setActionError(null);
+    setEditError(null);
+    setEditingMensalidade(item);
+    setEditForm({
+      name: item.name,
+      category: item.category,
+      dueDate: toInputDate(item.dueDate),
+      amount: formatAmountInput(String(Math.round(Math.max(0, item.amount) * 100))),
+      installmentsTotal: String(Math.max(1, Math.min(12, item.installmentTotal ?? 1))),
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMensalidade) return;
+
+    const name = editForm.name.trim();
+    const amount = parseAmount(editForm.amount);
+    const installmentsTotal = Number(editForm.installmentsTotal);
+
+    if (name.length < 2) {
+      setEditError("Informe o nome da mensalidade.");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setEditError("Informe um valor válido maior que zero.");
+      return;
+    }
+
+    if (!editForm.dueDate) {
+      setEditError("Selecione a data de vencimento.");
+      return;
+    }
+
+    if (!Number.isInteger(installmentsTotal) || installmentsTotal < 1 || installmentsTotal > 12) {
+      setEditError("Selecione uma quantidade de parcelas entre 1 e 12.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditError(null);
+
+    try {
+      await onEditMensalidade({
+        id: editingMensalidade.id,
+        name,
+        category: editForm.category,
+        dueDate: editForm.dueDate,
+        amount,
+        installmentsTotal,
+        status: editingMensalidade.statusRaw ?? (editingMensalidade.paidAt ? "Pago" : "pending"),
+      });
+
+      setEditingMensalidade(null);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Não foi possível editar a mensalidade.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async (item: Mensalidade) => {
+    if (pendingDeleteIds.has(item.id)) return;
+
+    const confirmed = window.confirm(`Excluir a mensalidade "${item.name}"?`);
+    if (!confirmed) return;
+
+    setActionError(null);
+
+    setPendingDeleteIds((current) => {
+      const next = new Set(current);
+      next.add(item.id);
+      return next;
+    });
+
+    try {
+      await onDeleteMensalidade(item.id);
+
+      if (selectedMensalidade?.id === item.id) {
+        setSelectedMensalidade(null);
+      }
+
+      if (editingMensalidade?.id === item.id) {
+        setEditingMensalidade(null);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Não foi possível excluir a mensalidade.");
+    } finally {
+      setPendingDeleteIds((current) => {
+        if (!current.has(item.id)) return current;
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
   return (
     <>
       <Card className="border-border/80 bg-gradient-to-b from-card to-card/95 shadow-[0_18px_46px_-26px_rgba(0,0,0,0.7)]">
@@ -98,6 +298,11 @@ export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimeli
       </CardHeader>
 
       <CardContent className="px-4 pb-4 pt-4 sm:px-6 sm:pb-6">
+        {actionError ? (
+          <div className="mb-4 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {actionError}
+          </div>
+        ) : null}
         <div className="overflow-hidden rounded-2xl border border-border/75 bg-gradient-to-b from-card/75 via-card/55 to-background/65 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <Table className="min-w-[900px]">
             <TableHeader className="bg-card/75 backdrop-blur">
@@ -107,7 +312,7 @@ export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimeli
                 <TableHead>Parcela</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="text-right">Status</TableHead>
-                <TableHead className="pr-5 text-right">Ação</TableHead>
+                <TableHead className="pr-5 text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b-0">
@@ -206,33 +411,65 @@ export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimeli
                       </TableCell>
 
                       <TableCell className="pr-5 text-right">
-                        {status !== "paid" ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {status !== "paid" ? (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              className="h-7 min-w-[92px] rounded-full border-success/45 bg-success/10 px-3 text-success hover:bg-success/15 hover:text-success"
+                              disabled={isPendingUpdate || pendingDeleteIds.has(item.id)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleMarkAsPaid(item.id);
+                              }}
+                            >
+                              <Check className="size-3" />
+                              {isPendingUpdate ? "Salvando..." : "Pago"}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              disabled
+                              className="h-7 min-w-[92px] rounded-full border-success/35 bg-success/10 px-3 text-success"
+                            >
+                              <Check className="size-3" />
+                              Pago
+                            </Button>
+                          )}
+
                           <Button
                             type="button"
                             size="xs"
                             variant="outline"
-                            className="h-7 min-w-[92px] rounded-full border-success/45 bg-success/10 px-3 text-success hover:bg-success/15 hover:text-success"
-                            disabled={isPendingUpdate}
+                            className="h-7 rounded-full px-3"
+                            disabled={isPendingUpdate || pendingDeleteIds.has(item.id)}
                             onClick={(event) => {
                               event.stopPropagation();
-                              void handleMarkAsPaid(item.id);
+                              handleOpenEdit(item);
                             }}
                           >
-                            <Check className="size-3" />
-                            {isPendingUpdate ? "Salvando..." : "Pago"}
+                            <Pencil className="size-3" />
+                            Editar
                           </Button>
-                        ) : (
+
                           <Button
                             type="button"
                             size="xs"
-                            variant="outline"
-                            disabled
-                            className="h-7 min-w-[92px] rounded-full border-success/35 bg-success/10 px-3 text-success"
+                            variant="destructive"
+                            className="h-7 rounded-full px-3"
+                            disabled={isPendingUpdate || pendingDeleteIds.has(item.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
                           >
-                            <Check className="size-3" />
-                            Pago
+                            <Trash2 className="size-3" />
+                            {pendingDeleteIds.has(item.id) ? "Excluindo..." : "Excluir"}
                           </Button>
-                        )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -243,6 +480,142 @@ export function MensalidadesTimeline({ items, onMarkAsPaid }: MensalidadesTimeli
         </div>
       </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(editingMensalidade)}
+        onOpenChange={(isOpen) => {
+          if (isSavingEdit) return;
+          if (!isOpen) {
+            setEditingMensalidade(null);
+            setEditError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.1),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))]">
+          <DialogHeader>
+            <DialogTitle>Editar mensalidade</DialogTitle>
+            <DialogDescription>Atualize os dados da conta recorrente.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome</Label>
+              <Input
+                value={editForm.name}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, name: event.target.value }))
+                }
+                placeholder="Ex: Faculdade"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Categoria</Label>
+                <Select
+                  value={editForm.category}
+                  onValueChange={(value) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      category: value as MensalidadeCategory,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORY_OPTIONS.map((category) => {
+                      const categoryVisual = resolveCategoryVisual(category);
+                      return (
+                        <SelectItem key={category} value={category}>
+                          {categoryVisual.label}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Valor</Label>
+                <Input
+                  value={editForm.amount}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      amount: formatAmountInput(event.target.value),
+                    }))
+                  }
+                  placeholder="R$ 0,00"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Parcelas</Label>
+                <Select
+                  value={editForm.installmentsTotal}
+                  onValueChange={(value) =>
+                    setEditForm((current) => ({ ...current, installmentsTotal: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}x
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Vencimento</Label>
+              <Input
+                type="date"
+                value={editForm.dueDate}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, dueDate: event.target.value }))
+                }
+              />
+            </div>
+
+            {editError ? (
+              <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {editError}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter className="mt-3 gap-3 border-t border-border/60 pt-4 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl px-4"
+              disabled={isSavingEdit}
+              onClick={() => {
+                if (isSavingEdit) return;
+                setEditingMensalidade(null);
+                setEditError(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl px-4 font-semibold"
+              disabled={isSavingEdit}
+              onClick={() => void handleSaveEdit()}
+            >
+              {isSavingEdit ? "Salvando..." : "Salvar alterações"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(selectedMensalidade)}

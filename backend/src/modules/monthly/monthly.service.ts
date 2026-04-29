@@ -158,4 +158,104 @@ export class MonthlyService {
       };
     }
   }
+
+  async editMonthly(monthlyId: string, dto: MonthlyDto) {
+    try {
+      const currentMonthly = await this.prisma.mensalidades.findUnique({
+        where: {
+          id: monthlyId,
+        },
+      });
+
+      if (!currentMonthly) {
+        return {
+          success: false,
+          message: 'Mensalidade não encontrada.',
+          data: [],
+        };
+      }
+
+      const updatedMonthly = await this.prisma.mensalidades.update({
+        where: {
+          id: monthlyId,
+        },
+        data: {
+          name: dto.name,
+          category: dto.category,
+          value: dto.value,
+          installments: dto.installments,
+          date: dto.date,
+          status: dto.status,
+        },
+      });
+
+      await this.notifyService.sendNotify({
+        title: 'Mensalidade editada',
+        type: 'monthly.updated',
+        message: `"${updatedMonthly.name}" foi atualizada.`,
+        is_read: 'false',
+      });
+
+      if (!this.isPaidStatus(updatedMonthly.status)) {
+        await this.createDueSoonNotify(updatedMonthly);
+      }
+
+      return {
+        success: true,
+        message: 'Sucesso ao editar mensalidade',
+        data: updatedMonthly,
+      };
+    } catch (error: any) {
+      console.error('erro ao editar mensalidade: ', error);
+      return {
+        success: false,
+        message: 'Erro ao editar mensalidade',
+        data: [],
+      };
+    }
+  }
+
+  async deleteMonthly(monthlyId: string) {
+    try {
+      const currentMonthly = await this.prisma.mensalidades.findUnique({
+        where: {
+          id: monthlyId,
+        },
+      });
+
+      if (!currentMonthly) {
+        return {
+          success: false,
+          message: 'Mensalidade não encontrada.',
+          data: [],
+        };
+      }
+
+      const deletedMonthly = await this.prisma.mensalidades.delete({
+        where: {
+          id: monthlyId,
+        },
+      });
+
+      await this.notifyService.sendNotify({
+        title: 'Mensalidade excluída',
+        type: 'monthly.deleted',
+        message: `"${deletedMonthly.name}" foi removida.`,
+        is_read: 'false',
+      });
+
+      return {
+        success: true,
+        message: 'Sucesso ao excluir mensalidade',
+        data: deletedMonthly,
+      };
+    } catch (error: any) {
+      console.error('erro ao excluir mensalidade: ', error);
+      return {
+        success: false,
+        message: 'Erro ao excluir mensalidade',
+        data: [],
+      };
+    }
+  }
 }

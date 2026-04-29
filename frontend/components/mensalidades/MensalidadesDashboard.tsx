@@ -15,7 +15,7 @@ import {
   sortMensalidadesByPriority,
 } from "@/components/mensalidades/utils";
 import { resolveMensalidadeCycle } from "@/lib/monthly-installments";
-import { fetchMonthly, markMonthlyAsPaid, registerMonthly } from "@/lib/monthly";
+import { deleteMonthly, fetchMonthly, markMonthlyAsPaid, registerMonthly, updateMonthly } from "@/lib/monthly";
 import { NOTIFY_UPDATED_EVENT } from "@/lib/notify";
 
 const INITIAL_FILTERS: MensalidadesFiltersState = {
@@ -146,6 +146,39 @@ export function MensalidadesDashboard() {
     }
   };
 
+  const handleEditMensalidade = async (input: {
+    id: string;
+    name: string;
+    category: MensalidadeCategory;
+    dueDate: string;
+    amount: number;
+    installmentsTotal: number;
+    status?: string | null;
+  }) => {
+    const updatedMonthly = await updateMonthly({
+      id: input.id,
+      name: input.name,
+      category: input.category,
+      amount: input.amount,
+      dueDate: input.dueDate,
+      installmentsTotal: input.installmentsTotal,
+      status: input.status,
+    });
+
+    setMonthlyPlans((current) =>
+      current.map((item) => (item.id === input.id ? { ...item, ...updatedMonthly } : item))
+    );
+    setLoadError(null);
+    window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
+  };
+
+  const handleDeleteMensalidade = async (id: string) => {
+    await deleteMonthly(id);
+    setMonthlyPlans((current) => current.filter((item) => item.id !== id));
+    setLoadError(null);
+    window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
+  };
+
   const handleFiltersChange = (next: Partial<MensalidadesFiltersState>) => {
     setFilters((current) => ({ ...current, ...next }));
   };
@@ -169,7 +202,12 @@ export function MensalidadesDashboard() {
         onClear={() => setFilters(INITIAL_FILTERS)}
       />
 
-      <MensalidadesTimeline items={orderedItems} onMarkAsPaid={handleMarkAsPaid} />
+      <MensalidadesTimeline
+        items={orderedItems}
+        onMarkAsPaid={handleMarkAsPaid}
+        onEditMensalidade={handleEditMensalidade}
+        onDeleteMensalidade={handleDeleteMensalidade}
+      />
     </div>
   );
 }

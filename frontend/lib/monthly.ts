@@ -33,12 +33,28 @@ type MonthlyStatusResponse = {
   data?: unknown;
 };
 
+type MonthlyMutationResponse = {
+  success?: boolean;
+  message?: string;
+  data?: unknown;
+};
+
 export type RegisterMonthlyInput = {
   name: string;
   category: MensalidadeCategory;
   amount: number;
   dueDate: string;
   installmentsTotal: number;
+};
+
+export type UpdateMonthlyInput = {
+  id: string;
+  name: string;
+  category: MensalidadeCategory;
+  amount: number;
+  dueDate: string;
+  installmentsTotal: number;
+  status?: string | null;
 };
 
 function normalizeText(value: string): string {
@@ -271,4 +287,72 @@ export async function markMonthlyAsPaid(monthlyId: string): Promise<Mensalidade>
   if (updatedRecord) return toMensalidade(updatedRecord);
 
   throw new Error("Resposta inválida ao atualizar status da mensalidade.");
+}
+
+export async function updateMonthly(input: UpdateMonthlyInput): Promise<Mensalidade> {
+  const installmentsTotal = Math.max(1, Math.min(12, Math.trunc(input.installmentsTotal)));
+  const payload = {
+    name: input.name,
+    category: input.category,
+    value: input.amount.toString(),
+    installments: `1/${installmentsTotal}`,
+    date: toApiDate(input.dueDate),
+    status: input.status ?? "pending",
+  };
+
+  const response = await fetch(`${API_BASE_URL}/monthly/${input.id}/edit`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const rawResponse = (await response.json().catch(() => null)) as MonthlyMutationResponse | null;
+
+  if (!response.ok) {
+    throw new Error(getCreateErrorMessage(rawResponse) ?? "Não foi possível editar a mensalidade.");
+  }
+
+  if (
+    rawResponse &&
+    typeof rawResponse === "object" &&
+    "success" in rawResponse &&
+    rawResponse.success === false
+  ) {
+    throw new Error(getCreateErrorMessage(rawResponse) ?? "Não foi possível editar a mensalidade.");
+  }
+
+  const updatedRecord =
+    rawResponse && typeof rawResponse === "object" && "data" in rawResponse
+      ? toMonthlyRecord(rawResponse.data)
+      : null;
+
+  if (updatedRecord) return toMensalidade(updatedRecord);
+
+  throw new Error("Resposta inválida ao editar mensalidade.");
+}
+
+export async function deleteMonthly(monthlyId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/monthly/${monthlyId}/delete`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const rawResponse = (await response.json().catch(() => null)) as MonthlyMutationResponse | null;
+
+  if (!response.ok) {
+    throw new Error(getCreateErrorMessage(rawResponse) ?? "Não foi possível excluir a mensalidade.");
+  }
+
+  if (
+    rawResponse &&
+    typeof rawResponse === "object" &&
+    "success" in rawResponse &&
+    rawResponse.success === false
+  ) {
+    throw new Error(getCreateErrorMessage(rawResponse) ?? "Não foi possível excluir a mensalidade.");
+  }
 }
