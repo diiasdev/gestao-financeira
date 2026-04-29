@@ -18,7 +18,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -165,25 +164,27 @@ export function ButtonNovaMensalidade({ onCreate }: ButtonNovaMensalidadeProps) 
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => {
-        setOpen(isOpen);
-        if (!isOpen) {
-          form.reset(defaultValues);
-          setSubmitError(null);
-        }
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button
-          size="lg"
-          className="h-10 rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="size-4" />
-          Nova mensalidade
-        </Button>
-      </DialogTrigger>
+    <>
+      <Button
+        type="button"
+        size="lg"
+        onClick={() => setOpen(true)}
+        className="h-10 rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        <Plus className="size-4" />
+        Nova mensalidade
+      </Button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(isOpen) => {
+          setOpen(isOpen);
+          if (!isOpen) {
+            form.reset(defaultValues);
+            setSubmitError(null);
+          }
+        }}
+      >
 
       <DialogContent className="max-w-xl border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.1),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))] p-7">
         <DialogHeader>
@@ -352,6 +353,7 @@ export function ButtonNovaMensalidade({ onCreate }: ButtonNovaMensalidadeProps) 
           </form>
         </Form>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }

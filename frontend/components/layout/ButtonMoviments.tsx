@@ -35,7 +35,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -400,7 +399,7 @@ export function ButtonMoviments() {
       window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
     } catch (error) {
       if (error instanceof TypeError && error.message === "Failed to fetch") {
-        setSubmitError("Não foi possível conectar ao backend (http://localhost:3001).");
+        setSubmitError(`Não foi possível conectar ao backend (${API_BASE_URL}).`);
         return;
       }
 
@@ -410,6 +409,16 @@ export function ButtonMoviments() {
 
   return (
     <>
+      <Button
+        type="button"
+        size="lg"
+        onClick={() => setDialogOpen(true)}
+        className="h-10 rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        <Wallet className="size-4" />
+        Novo Movimento
+      </Button>
+
       <Dialog
         open={dialogOpen}
         onOpenChange={(isOpen) => {
@@ -421,40 +430,30 @@ export function ButtonMoviments() {
           }
         }}
       >
-        <DialogTrigger asChild>
-          <Button
-            size="lg"
-            className="h-10 rounded-xl bg-primary px-4 font-semibold text-primary-foreground hover:bg-primary/90"
-          >
-            <Wallet className="size-4" />
-            Novo Movimento
-          </Button>
-        </DialogTrigger>
+        <DialogContent className="max-w-[720px] border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.12),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))] p-8">
+          <div className="flex items-start justify-between gap-4">
+            <DialogHeader>
+              <DialogTitle>Registrar movimentação</DialogTitle>
+              <DialogDescription>
+                Escolha o tipo e preencha os dados da sua entrada ou saída.
+              </DialogDescription>
+            </DialogHeader>
 
-      <DialogContent className="max-w-[720px] border-border/90 bg-[radial-gradient(circle_at_top_left,rgba(212,175,55,0.12),transparent_42%),linear-gradient(120deg,rgba(30,30,30,0.98),rgba(18,18,18,0.96))] p-8">
-        <div className="flex items-start justify-between gap-4">
-          <DialogHeader>
-            <DialogTitle>Registrar movimentação</DialogTitle>
-            <DialogDescription>
-              Escolha o tipo e preencha os dados da sua entrada ou saída.
-            </DialogDescription>
-          </DialogHeader>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="rounded-xl text-muted-foreground hover:text-foreground"
+                aria-label="Fechar modal"
+              >
+                <X className="size-4" />
+              </Button>
+            </DialogClose>
+          </div>
 
-          <DialogClose asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="rounded-xl text-muted-foreground hover:text-foreground"
-              aria-label="Fechar modal"
-            >
-              <X className="size-4" />
-            </Button>
-          </DialogClose>
-        </div>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-6 space-y-4">
             <FormField
               control={form.control}
               name="movementType"
@@ -744,9 +743,9 @@ export function ButtonMoviments() {
               </Button>
             </DialogFooter>
             {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-          </form>
-        </Form>
-      </DialogContent>
+            </form>
+          </Form>
+        </DialogContent>
       </Dialog>
 
       {successAlert ? (

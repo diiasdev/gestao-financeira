@@ -1,9 +1,19 @@
 export const FINANCE_UPDATED_EVENT = "finance:transactions-updated";
 
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").replace(
-  /\/$/,
-  ""
-);
+function resolveApiBaseUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (envUrl) return envUrl.replace(/\/$/, "");
+
+  const port = process.env.NEXT_PUBLIC_API_PORT?.trim() || "3001";
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:${port}`;
+  }
+
+  return `http://localhost:${port}`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export type FinanceTransactionType = "INCOME" | "EXPENSE";
 
