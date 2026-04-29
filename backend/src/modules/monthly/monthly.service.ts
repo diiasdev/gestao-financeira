@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import type { Mensalidades } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { NotifyService } from '../notify/notify.service';
 
 export type MonthlyDto = {
   name: string;
@@ -12,7 +14,57 @@ export type MonthlyDto = {
 
 @Injectable()
 export class MonthlyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifyService: NotifyService,
+  ) {}
+
+  private normalizeStatus(status: string | null | undefined): string {
+    return (status ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private isPaidStatus(status: string | null | undefined): boolean {
+    const normalizedStatus = this.normalizeStatus(status);
+    return normalizedStatus === 'pago' || normalizedStatus === 'paid' || normalizedStatus === 'quitado';
+  }
+
+  private toDate(input: string | Date): Date | null {
+    const date = input instanceof Date ? input : new Date(input);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private getDaysUntilDue(dueDate: Date): number {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+    const msInOneDay = 1000 * 60 * 60 * 24;
+    return Math.floor((dueStart.getTime() - todayStart.getTime()) / msInOneDay);
+  }
+
+  private formatDateBR(date: Date): string {
+    return new Intl.DateTimeFormat('pt-BR').format(date);
+  }
+
+  private async createDueSoonNotify(monthly: Mensalidades) {
+    if (this.isPaidStatus(monthly.status)) return;
+
+    const dueDate = this.toDate(monthly.date);
+    if (!dueDate) return;
+
+    const daysUntilDue = this.getDaysUntilDue(dueDate);
+    if (daysUntilDue < 0 || daysUntilDue > 7) return;
+
+    await this.notifyService.sendNotifyIfNotExists({
+      title: 'Mensalidade perto do vencimento',
+      type: 'monthly.due_soon',
+      message: `"${monthly.name}" vence em ${this.formatDateBR(dueDate)}.`,
+      is_read: 'false',
+    });
+  }
 
   async registerMonthly(dto: MonthlyDto) {
     try {
@@ -28,6 +80,7 @@ export class MonthlyService {
       });
 
       console.log('Mensalidade Registrada: ', newMonthly);
+      await this.createDueSoonNotify(newMonthly);
 
       return {
         success: true,
@@ -45,11 +98,17 @@ export class MonthlyService {
   }
 
   async getMonthly() {
-    return this.prisma.mensalidades.findMany({
+    const monthlyList = await this.prisma.mensalidades.findMany({
       orderBy: {
         date: 'asc',
       },
     });
+
+    await Promise.all(
+      monthlyList.map((monthly) => this.createDueSoonNotify(monthly)),
+    );
+
+    return monthlyList;
   }
 
   async paidStatus(monthlyId: string) {
@@ -75,6 +134,13 @@ export class MonthlyService {
         data: {
           status: 'Pago',
         },
+      });
+
+      await this.notifyService.sendNotify({
+        title: 'Mensalidade marcada como paga',
+        type: 'monthly.paid',
+        message: `"${paidMonthly.name}" foi marcada como paga.`,
+        is_read: 'false',
       });
 
       return {

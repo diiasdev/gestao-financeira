@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotifyService } from '../notify/notify.service';
 
 export type TransactionDto = {
   type: TransactionType;
@@ -15,7 +16,17 @@ export type TransactionDto = {
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifyService: NotifyService,
+  ) {}
+
+  private formatCurrencyBRL(amount: number): string {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(Math.abs(amount));
+  }
 
   async registerTransaction(dto: TransactionDto) {
     try {
@@ -38,6 +49,13 @@ export class FinanceService {
         console.error('Sem movimento');
         return;
       }
+
+      await this.notifyService.sendNotify({
+        title: 'Movimentação registrada',
+        type: 'transaction.created',
+        message: `${dto.type === 'INCOME' ? 'Entrada' : 'Saída'} de ${this.formatCurrencyBRL(dto.amount)} em "${dto.category}" (${dto.description}) foi registrada.`,
+        is_read: 'false',
+      });
 
       return {
         success: true,

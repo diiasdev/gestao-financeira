@@ -14,11 +14,18 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
-import type { ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  NOTIFY_UPDATED_EVENT,
+  fetchNotifications,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  type AppNotification,
+} from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 export type HeaderTab = "dashboard" | "transactions" | "mensalidades";
@@ -38,43 +45,6 @@ type NotificationItem = {
   tone: NotificationTone;
   unread?: boolean;
 };
-
-const notificationsMock: NotificationItem[] = [
-  {
-    id: "n1",
-    title: "Mensalidade vence amanhã",
-    description: "Plano de Internet Fibra vence em 1 dia. Revise saldo para evitar atraso.",
-    timestamp: "Há 3 min",
-    icon: AlertTriangle,
-    tone: "warning",
-    unread: true,
-  },
-  {
-    id: "n2",
-    title: "Mensalidade marcada como paga",
-    description: "Condomínio foi atualizado para pago e removido da lista em aberto.",
-    timestamp: "Há 18 min",
-    icon: CircleCheckBig,
-    tone: "success",
-    unread: true,
-  },
-  {
-    id: "n3",
-    title: "Aporte registrado",
-    description: "Investimento de R$ 120,00 registrado com rendimento mensal automático.",
-    timestamp: "Hoje, 09:42",
-    icon: PiggyBank,
-    tone: "primary",
-  },
-  {
-    id: "n4",
-    title: "Saldo atual atualizado",
-    description: "O painel recalculou o saldo após pagamento de mensalidades e aportes.",
-    timestamp: "Ontem, 21:10",
-    icon: Wallet,
-    tone: "neutral",
-  },
-];
 
 const tabs: Array<{
   id: HeaderTab;
@@ -127,6 +97,69 @@ function getNotificationToneClasses(tone: NotificationTone): string {
   if (tone === "success") return "border-success/40 bg-success/15 text-success";
   if (tone === "primary") return "border-primary/45 bg-primary/15 text-primary";
   return "border-border/80 bg-muted/65 text-muted-foreground";
+}
+
+function formatNotificationTimestamp(createdAt: string): string {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 60_000) return "Agora";
+  if (diffMs < 3_600_000) return `Há ${Math.floor(diffMs / 60_000)} min`;
+  if (diffMs < 86_400_000) return `Há ${Math.floor(diffMs / 3_600_000)} h`;
+  if (diffMs < 604_800_000) return `Há ${Math.floor(diffMs / 86_400_000)} d`;
+
+  return new Intl.DateTimeFormat("pt-BR").format(date);
+}
+
+function toNotificationItem(item: AppNotification): NotificationItem {
+  const type = item.type.trim().toLowerCase();
+
+  if (type === "monthly.due_soon") {
+    return {
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      timestamp: formatNotificationTimestamp(item.createdAt),
+      icon: AlertTriangle,
+      tone: "warning",
+      unread: item.unread,
+    };
+  }
+
+  if (type === "monthly.paid") {
+    return {
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      timestamp: formatNotificationTimestamp(item.createdAt),
+      icon: CircleCheckBig,
+      tone: "success",
+      unread: item.unread,
+    };
+  }
+
+  if (type === "transaction.created") {
+    return {
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      timestamp: formatNotificationTimestamp(item.createdAt),
+      icon: PiggyBank,
+      tone: "primary",
+      unread: item.unread,
+    };
+  }
+
+  return {
+    id: item.id,
+    title: item.title,
+    description: item.description,
+    timestamp: formatNotificationTimestamp(item.createdAt),
+    icon: Wallet,
+    tone: "neutral",
+    unread: item.unread,
+  };
 }
 
 type HeaderTabsProps = {
@@ -221,7 +254,73 @@ export function BottomNavigation({ activeTab }: HeaderTabsProps) {
 }
 
 export function Header({ activeTab }: HeaderProps) {
-  const unreadCount = notificationsMock.filter((item) => item.unread).length;
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [isMarkingAllAsRead, setIsMarkingAllAsRead] = useState(false);
+
+  const reloadNotifications = useCallback(async () => {
+    setIsLoadingNotifications(true);
+    setNotificationError(null);
+
+    try {
+      const rows = await fetchNotifications();
+      setNotifications(rows.map(toNotificationItem));
+    } catch (error) {
+      setNotificationError(
+        error instanceof Error ? error.message : "Não foi possível carregar as notificações."
+      );
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadNotifications();
+
+    const handleNotifyUpdated = () => {
+      void reloadNotifications();
+    };
+
+    window.addEventListener(NOTIFY_UPDATED_EVENT, handleNotifyUpdated);
+    return () => {
+      window.removeEventListener(NOTIFY_UPDATED_EVENT, handleNotifyUpdated);
+    };
+  }, [reloadNotifications]);
+
+  const unreadCount = useMemo(
+    () => notifications.filter((item) => item.unread).length,
+    [notifications]
+  );
+
+  const handleMarkAsRead = useCallback(async (id: string) => {
+    try {
+      await markNotificationAsRead(id);
+      setNotifications((current) =>
+        current.map((item) => (item.id === id ? { ...item, unread: false } : item))
+      );
+    } catch (error) {
+      setNotificationError(
+        error instanceof Error ? error.message : "Não foi possível marcar a notificação como lida."
+      );
+    }
+  }, []);
+
+  const handleMarkAllAsRead = useCallback(async () => {
+    if (unreadCount <= 0 || isMarkingAllAsRead) return;
+
+    setIsMarkingAllAsRead(true);
+    try {
+      await markAllNotificationsAsRead();
+      setNotifications((current) => current.map((item) => ({ ...item, unread: false })));
+    } catch (error) {
+      setNotificationError(
+        error instanceof Error ? error.message : "Não foi possível marcar as notificações como lidas."
+      );
+    } finally {
+      setIsMarkingAllAsRead(false);
+    }
+  }, [isMarkingAllAsRead, unreadCount]);
 
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-linear-to-r from-card via-card to-background/90 backdrop-blur">
@@ -282,13 +381,29 @@ export function Header({ activeTab }: HeaderProps) {
 
                 <div className="max-h-[68vh] overflow-y-auto px-2 py-2 sm:max-h-[24rem]">
                   <div className="space-y-1.5">
-                    {notificationsMock.map((item) => {
+                    {isLoadingNotifications && notifications.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-muted-foreground">Carregando notificações...</p>
+                    ) : null}
+
+                    {notificationError && notifications.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-destructive">{notificationError}</p>
+                    ) : null}
+
+                    {!isLoadingNotifications && !notificationError && notifications.length === 0 ? (
+                      <p className="px-2 py-3 text-xs text-muted-foreground">Sem notificações no momento.</p>
+                    ) : null}
+
+                    {notifications.map((item) => {
                       const Icon = item.icon;
 
                       return (
                         <button
                           key={item.id}
                           type="button"
+                          onClick={() => {
+                            if (!item.unread) return;
+                            void handleMarkAsRead(item.id);
+                          }}
                           className="group w-full rounded-xl border border-transparent px-2.5 py-2.5 text-left transition-colors hover:border-border/75 hover:bg-background/65"
                         >
                           <div className="flex items-start gap-2.5">
@@ -312,11 +427,24 @@ export function Header({ activeTab }: HeaderProps) {
 
                 <div className="border-t border-border/70 px-3 py-2.5">
                   <div className="flex items-center gap-2">
-                    <Button type="button" size="xs" variant="outline" className="flex-1 rounded-lg">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      className="flex-1 rounded-lg"
+                      onClick={() => void handleMarkAllAsRead()}
+                      disabled={unreadCount <= 0 || isMarkingAllAsRead}
+                    >
                       Marcar todas como lidas
                     </Button>
-                    <Button type="button" size="xs" className="flex-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
-                      Ver central
+                    <Button
+                      type="button"
+                      size="xs"
+                      className="flex-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={() => void reloadNotifications()}
+                      disabled={isLoadingNotifications}
+                    >
+                      Atualizar
                     </Button>
                   </div>
                 </div>

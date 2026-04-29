@@ -16,6 +16,7 @@ import {
 } from "@/components/mensalidades/utils";
 import { resolveMensalidadeCycle } from "@/lib/monthly-installments";
 import { fetchMonthly, markMonthlyAsPaid, registerMonthly } from "@/lib/monthly";
+import { NOTIFY_UPDATED_EVENT } from "@/lib/notify";
 
 const INITIAL_FILTERS: MensalidadesFiltersState = {
   status: "all",
@@ -51,6 +52,7 @@ export function MensalidadesDashboard() {
         const monthly = await fetchMonthly();
         if (!active) return;
         setMonthlyPlans(monthly);
+        window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
       } catch (error) {
         if (!active) return;
         setLoadError(
@@ -125,6 +127,7 @@ export function MensalidadesDashboard() {
 
     setMonthlyPlans((current) => [...current, createdMonthly]);
     setLoadError(null);
+    window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
   };
 
   const handleMarkAsPaid = async (id: string) => {
@@ -135,6 +138,7 @@ export function MensalidadesDashboard() {
         current.map((item) => (item.id === id ? { ...item, ...updatedMonthly } : item))
       );
       setLoadError(null);
+      window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
     } catch (error) {
       setLoadError(
         error instanceof Error ? error.message : "Não foi possível atualizar o status da mensalidade."

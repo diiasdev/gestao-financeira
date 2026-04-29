@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/select";
 import { normalizeCategory } from "@/components/Transitions/transaction-visuals";
 import { API_BASE_URL, FINANCE_UPDATED_EVENT } from "@/lib/finance";
+import { NOTIFY_UPDATED_EVENT } from "@/lib/notify";
 import { BASE_TRANSACTION_CATEGORIES, EXTRA_INCOME_TRANSACTION_CATEGORY } from "@/lib/transaction-categories";
 import { cn } from "@/lib/utils";
 
@@ -359,6 +360,7 @@ export function ButtonMoviments() {
       setDialogOpen(false);
       setSuccessAlert("Movimentação registrada com sucesso.");
       window.dispatchEvent(new Event(FINANCE_UPDATED_EVENT));
+      window.dispatchEvent(new Event(NOTIFY_UPDATED_EVENT));
     } catch (error) {
       if (error instanceof TypeError && error.message === "Failed to fetch") {
         setSubmitError("Não foi possível conectar ao backend (http://localhost:3001).");
