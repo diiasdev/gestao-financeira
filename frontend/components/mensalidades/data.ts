@@ -7,6 +7,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "servicos",
     dueDate: "2026-05-05",
     amount: 149.9,
+    installmentCurrent: 7,
+    installmentTotal: 10,
     paidAt: null,
     autopay: true,
   },
@@ -16,6 +18,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "saude",
     dueDate: "2026-05-10",
     amount: 129.9,
+    installmentCurrent: 4,
+    installmentTotal: 12,
     paidAt: "2026-04-24",
   },
   {
@@ -24,6 +28,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "assinaturas",
     dueDate: "2026-05-12",
     amount: 39.9,
+    installmentCurrent: 1,
+    installmentTotal: 1,
     paidAt: null,
   },
   {
@@ -32,6 +38,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "moradia",
     dueDate: "2026-04-15",
     amount: 650,
+    installmentCurrent: 1,
+    installmentTotal: 1,
     paidAt: null,
   },
   {
@@ -40,6 +48,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "utilidades",
     dueDate: "2026-04-30",
     amount: 219.7,
+    installmentCurrent: 6,
+    installmentTotal: 12,
     paidAt: null,
     autopay: true,
   },
@@ -49,6 +59,8 @@ export const mensalidadesMock: Mensalidade[] = [
     category: "educacao",
     dueDate: "2026-05-22",
     amount: 89.9,
+    installmentCurrent: 2,
+    installmentTotal: 6,
     paidAt: null,
   },
 ];

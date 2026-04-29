@@ -14,6 +14,8 @@ export type Mensalidade = {
   category: MensalidadeCategory;
   dueDate: string;
   amount: number;
+  installmentCurrent?: number;
+  installmentTotal?: number;
   paidAt?: string | null;
   autopay?: boolean;
 };
