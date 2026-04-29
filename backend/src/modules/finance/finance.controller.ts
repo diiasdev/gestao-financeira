@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { FinanceService } from './finance.service';
 import type { TransactionDto } from './finance.service';
 
@@ -19,5 +27,10 @@ export class FinanceController {
   @Patch(':id/edit')
   async editTransactions(@Param('id') id: string, @Body() dto: TransactionDto) {
     return this.financeService.editTransactions(id, dto);
+  }
+
+  @Delete(':id/delete')
+  async deleteTransaction(@Param('id') id: string) {
+    return this.financeService.excluidTransactions(id);
   }
 }

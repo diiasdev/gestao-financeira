@@ -30,7 +30,6 @@ export class FinanceService {
 
   async registerTransaction(dto: TransactionDto) {
     try {
-
       const newMoviment = await this.prisma.transaction.create({
         data: {
           type: dto.type,
@@ -105,6 +104,28 @@ export class FinanceService {
       return {
         success: false,
         message: 'Erro ao editar movimentação',
+        data: [],
+      };
+    }
+  };
+
+  excluidTransactions = async (id: string) => {
+    try {
+      const exclued = await this.prisma.transaction.delete({
+        where: { id },
+      });
+
+      return {
+        success: true,
+        message: 'Sucesso ao excluir Movimentação',
+        data: exclued,
+      };
+    } catch (error: any) {
+      console.error('Erro ao excluir Movimentação: ', error);
+
+      return {
+        success: false,
+        message: 'Erro ao excluir Movimetação',
         data: [],
       };
     }

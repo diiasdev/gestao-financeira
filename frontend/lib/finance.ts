@@ -176,3 +176,21 @@ export async function updateTransaction(
 
   return updated;
 }
+
+export async function deleteTransaction(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/finance/${id}/delete`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const payload = (await response.json().catch(() => null)) as FinanceMutationResponse | null;
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload) ?? "Não foi possível excluir a movimentação.");
+  }
+
+  if (payload?.success === false) {
+    throw new Error(getApiErrorMessage(payload) ?? "Não foi possível excluir a movimentação.");
+  }
+}

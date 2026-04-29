@@ -6,7 +6,7 @@ import {
   resolveCategoryVisual,
   resolvePaymentMethodVisual,
 } from "@/components/Transitions/transaction-visuals";
-import { CalendarClock, Paperclip, Pencil, PiggyBank } from "lucide-react";
+import { CalendarClock, Paperclip, Pencil, PiggyBank, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   API_BASE_URL,
   FINANCE_UPDATED_EVENT,
+  deleteTransaction,
   formatCategoryLabel,
   formatCurrencyBRL,
   formatDateBR,
@@ -165,6 +166,8 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
   const [editReceiptFile, setEditReceiptFile] = useState<File | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const selectedSnapshot = useMemo(() => {
     if (!selectedInvestment) return null;
@@ -223,6 +226,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
   };
 
   const handleOpenEdit = (transaction: FinanceTransaction) => {
+    setActionError(null);
     setEditingTransaction(transaction);
     setEditReceiptFile(null);
     setEditError(null);
@@ -329,6 +333,43 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
     }
   };
 
+  const handleDelete = async (transaction: FinanceTransaction) => {
+    if (isDeletingId) return;
+
+    const amount = Math.abs(toAmountNumber(transaction.amount));
+    const confirmed = window.confirm(
+      `Excluir a movimentação "${transaction.description || "Sem descrição"}" (${formatCurrencyBRL(amount)})?`
+    );
+    if (!confirmed) return;
+
+    setActionError(null);
+    setIsDeletingId(transaction.id);
+
+    try {
+      await deleteTransaction(transaction.id);
+
+      if (selectedInvestment?.id === transaction.id) {
+        setSelectedInvestment(null);
+      }
+
+      if (editingTransaction?.id === transaction.id) {
+        setEditingTransaction(null);
+        setEditReceiptFile(null);
+        setEditError(null);
+      }
+
+      window.dispatchEvent(new Event(FINANCE_UPDATED_EVENT));
+    } catch (deleteError) {
+      setActionError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Não foi possível excluir a movimentação."
+      );
+    } finally {
+      setIsDeletingId(null);
+    }
+  };
+
   return (
     <>
       <Card className="border-border/85 bg-card/95">
@@ -340,6 +381,11 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
           {error ? (
             <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
+            </div>
+          ) : null}
+          {actionError ? (
+            <div className="mt-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {actionError}
             </div>
           ) : null}
 
@@ -449,18 +495,34 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                             {`${isIncome ? "+" : "-"}${formatCurrencyBRL(amount)}`}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenEdit(item);
-                              }}
-                            >
-                              <Pencil className="size-3.5" />
-                              Editar
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleOpenEdit(item);
+                                }}
+                                disabled={isDeletingId === item.id}
+                              >
+                                <Pencil className="size-3.5" />
+                                Editar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="destructive"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDelete(item);
+                                }}
+                                disabled={isDeletingId === item.id}
+                              >
+                                <Trash2 className="size-3.5" />
+                                {isDeletingId === item.id ? "Excluindo..." : "Excluir"}
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -537,7 +599,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                         )}
                       </div>
 
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
                         <Button
                           type="button"
                           size="xs"
@@ -546,9 +608,23 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                             event.stopPropagation();
                             handleOpenEdit(item);
                           }}
+                          disabled={isDeletingId === item.id}
                         >
                           <Pencil className="size-3.5" />
                           Editar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="destructive"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDelete(item);
+                          }}
+                          disabled={isDeletingId === item.id}
+                        >
+                          <Trash2 className="size-3.5" />
+                          {isDeletingId === item.id ? "Excluindo..." : "Excluir"}
                         </Button>
                       </div>
 
