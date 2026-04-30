@@ -8,7 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { FinanceService } from './finance.service';
-import type { TransactionDto } from './finance.service';
+import type { ReadReceiptDto, TransactionDto } from './finance.service';
 
 @Controller('finance')
 export class FinanceController {
@@ -32,5 +32,10 @@ export class FinanceController {
   @Delete(':id/delete')
   async deleteTransaction(@Param('id') id: string) {
     return this.financeService.excluidTransactions(id);
+  }
+
+  @Post('receipt/autofill')
+  async createMovimentToReceipt(@Body() dto: ReadReceiptDto) {
+    return this.financeService.createMovimentToReceipt(dto.receiptUrl);
   }
 }

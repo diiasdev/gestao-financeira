@@ -38,7 +38,7 @@ import {
 import { getInvestmentSnapshot } from "@/lib/investments";
 import { BASE_TRANSACTION_CATEGORIES, EXTRA_INCOME_TRANSACTION_CATEGORY } from "@/lib/transaction-categories";
 import { cn } from "@/lib/utils";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type MouseEvent } from "react";
 
 type TransactionsListProps = {
   transactions: FinanceTransaction[];
@@ -134,7 +134,7 @@ function resolveReceiptLink(receiptUrl?: string | null): string | null {
   const value = receiptUrl?.trim();
   if (!value) return null;
 
-  if (/^https?:\/\//i.test(value) || /^data:image\//i.test(value)) {
+  if (/^https?:\/\//i.test(value) || /^data:image\//i.test(value) || /^data:application\/pdf/i.test(value)) {
     return value;
   }
 
@@ -147,6 +147,31 @@ function resolveReceiptLink(receiptUrl?: string | null): string | null {
   }
 
   return null;
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function toSafeOpenUrl(url: string): { url: string; revokeAfterOpen?: boolean } {
+  const dataMatch = url.match(/^data:([^;,]+);base64,(.+)$/i);
+  if (!dataMatch || !dataMatch[1] || !dataMatch[2]) {
+    return { url };
+  }
+
+  const mimeType = dataMatch[1];
+  const base64 = dataMatch[2];
+  const blob = base64ToBlob(base64, mimeType);
+  const blobUrl = URL.createObjectURL(blob);
+  return {
+    url: blobUrl,
+    revokeAfterOpen: true,
+  };
 }
 
 export function TransactionsList({ transactions, isLoading, error }: TransactionsListProps) {
@@ -168,6 +193,23 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleOpenReceipt = (event: MouseEvent<HTMLAnchorElement>, receiptLink: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { url, revokeAfterOpen } = toSafeOpenUrl(receiptLink);
+    const win = window.open("about:blank", "_blank");
+    if (!win) return;
+
+    // Avoid exposing window.opener while keeping one tab open flow.
+    win.opener = null;
+    win.location.replace(url);
+
+    if (revokeAfterOpen) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+  };
 
   const selectedSnapshot = useMemo(() => {
     if (!selectedInvestment) return null;
@@ -482,7 +524,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                                 href={receiptLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                onClick={(event) => event.stopPropagation()}
+                                onClick={(event) => handleOpenReceipt(event, receiptLink)}
                                 className="text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
                               >
                                 Ver comprovante
@@ -589,7 +631,7 @@ export function TransactionsList({ transactions, isLoading, error }: Transaction
                             href={receiptLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(event) => event.stopPropagation()}
+                            onClick={(event) => handleOpenReceipt(event, receiptLink)}
                             className="text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
                           >
                             Ver comprovante
